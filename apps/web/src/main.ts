@@ -57,7 +57,7 @@ import {
 
 import { reflectAccountState } from "./account-badge";
 import { mountTranscribePanel } from "./transcribe-panel";
-import { initPageLocale, languagePicker } from "@opendownloader/ui";
+import { initPageLocale, languagePicker, onLocaleChange, t } from "@opendownloader/ui";
 
 // Test-only engine configuration, applied before anything can start a download.
 // Automation can click a button but cannot answer a native save dialog, so the
@@ -801,12 +801,19 @@ async function adoptLocalRelay(): Promise<void> {
 /** Set when the relay was found rather than typed, so Settings can say so. */
 let relayAdopted = false;
 
-void adoptLocalRelay();
-void adoptTorrentBridge();
+// What this page can actually do depends on which helpers answered, so the hint under
+// the link box and the site catalogue are drawn once now — in the state that is true on
+// opendownloader.app, where neither can — and again once both probes have finished.
+void Promise.allSettled([adoptLocalRelay(), adoptTorrentBridge()]).then(() => {
+  renderUrlHelp();
+  void renderSupportedSites(document.getElementById("site-list"));
+});
 // Only a hint on the header control. Lazy, failure-tolerant, and never on the path
 // of anything the page actually does.
 void reflectAccountState(document.getElementById("account-link"));
+renderUrlHelp();
 void renderSupportedSites(document.getElementById("site-list"));
+onLocaleChange(() => void renderSupportedSites(document.getElementById("site-list")));
 
 const manager = new Manager({
   root: document.getElementById("manager") as HTMLElement,
@@ -1104,6 +1111,29 @@ async function queueOption(
   await manager.start();
 }
 
+/** Whether a relay this page can use is switched on. */
+function relayActive(): boolean {
+  return relay.enabled && relay.url !== "";
+}
+
+/**
+ * Show the version of the hint under the link box that is true for this page.
+ *
+ * The markup carries the opendownloader.app version, where no helper is reachable. A
+ * page that found a relay can also take the video sites that refuse a foreign origin,
+ * and one that found the torrent bridge can take magnets. Hiding rather than rewriting
+ * keeps every sentence a fixed catalogue key, so each is translated like any other.
+ */
+function renderUrlHelp(): void {
+  const help = document.getElementById("url-help");
+  if (!help) return;
+  for (const el of help.querySelectorAll<HTMLElement>("[data-hint]")) {
+    const which = el.dataset.hint;
+    el.hidden =
+      which === "web" ? relayActive() : which === "relay" ? !relayActive() : !torrentBridge;
+  }
+}
+
 /**
  * List the sites this build can extract from, and say plainly where each one works.
  *
@@ -1111,43 +1141,60 @@ async function queueOption(
  * large-platform extractors out, and a list typed into the page would go on advertising
  * them. Marking the extension-only ones is the point of the section — the alternative is
  * someone pasting an Instagram link and learning it from an error.
+ *
+ * "Here" is decided by what this page can reach, not by what the extractor can do. It
+ * used to follow `withoutATab` alone, which says an extractor can work from fetches and
+ * nothing about whether a browser lets this origin read the answers — so YouTube,
+ * Bilibili, Vimeo, Dailymotion and X were all marked "here" on a page that refused every
+ * one of them within two seconds (APP-79). A site is here when it answers any origin, or
+ * when a relay this page is using makes the calls for it.
  */
 async function renderSupportedSites(root: HTMLElement | null): Promise<void> {
   if (!root) return;
   try {
     const sites = await supportedSites();
+    const chip = (name: string, here: boolean, where: string, title: string): HTMLElement => {
+      const el = document.createElement("span");
+      el.className = here ? "site here" : "site";
+      const label = document.createElement("span");
+      label.textContent = name;
+      const whereEl = document.createElement("span");
+      whereEl.className = "where";
+      whereEl.textContent = where;
+      el.append(label, whereEl);
+      el.title = title;
+      return el;
+    };
     root.replaceChildren(
       ...sites.map((site) => {
-        const chip = document.createElement("span");
-        chip.className = site.withoutATab ? "site here" : "site";
-        const name = document.createElement("span");
-        name.textContent = site.name;
-        const where = document.createElement("span");
-        where.className = "where";
-        where.textContent = site.withoutATab ? "here" : "extension";
-        chip.append(name, where);
-        chip.title = site.withoutATab
-          ? `Paste a ${site.host} link on this page.`
-          : `${site.host} has to be read from its own page — open it in a tab and use the extension there.`;
-        return chip;
+        const here = site.fromAnyOrigin || (site.withoutATab && relayActive());
+        return chip(
+          site.name,
+          here,
+          here ? t("here") : t("extension"),
+          here
+            ? t("Paste a {site} link on this page.", { site: site.host })
+            : t("{site} will not answer this page. Open the video in a tab and use the extension there.", {
+                site: site.host,
+              }),
+        );
       }),
     );
     // The link kinds, after the websites. Same chips, different question: a website
     // entry answers "can this page read it", a source entry answers "does this need a
     // program running on your machine".
     for (const source of await supportedSources()) {
-      const chip = document.createElement("span");
-      chip.className = source.needsLocalHelper ? "site" : "site here";
-      const name = document.createElement("span");
-      name.textContent = source.name;
-      const where = document.createElement("span");
-      where.className = "where";
-      where.textContent = source.needsLocalHelper ? "local helper" : "here";
-      chip.append(name, where);
-      chip.title = source.needsLocalHelper
-        ? `Accepts ${source.accepts} — needs the local helper running.`
-        : `Accepts ${source.accepts}.`;
-      root.append(chip);
+      // A helper is only worth naming where this page could reach one. On
+      // opendownloader.app it cannot, and the answer is the app with the page inside it.
+      const here = !source.needsLocalHelper || (source.name === "BitTorrent" ? !!torrentBridge : relayActive());
+      root.append(
+        chip(
+          source.name,
+          here,
+          here ? t("here") : t("app"),
+          here ? source.accepts : t("Needs the OpenDownloader app running."),
+        ),
+      );
     }
   } catch {
     // The list is a courtesy; the link box works without it, and an error here would say
@@ -1351,6 +1398,21 @@ function mountRelaySettings(): void {
   // later, so the previous row is replaced rather than stacked on top of itself.
   panel.querySelectorAll("[data-relay-row]").forEach((el) => el.remove());
 
+  // On opendownloader.app a relay on this machine is unreachable (see
+  // CAN_REACH_LOOPBACK), and offering a setting that cannot work contradicted the error
+  // a refused paste already gives. So the page says where the relay does apply. The
+  // controls stay only if one is configured, so it can still be switched off.
+  if (!CAN_REACH_LOOPBACK && !relay.url) {
+    const note = document.createElement("p");
+    note.className = "muted hint";
+    note.setAttribute("data-relay-row", "");
+    note.textContent = t(
+      "Sites that refuse a web page work in the extension. The relay in the repository does the same job for a copy of this page you run yourself — a page on the web cannot reach a program on your computer.",
+    );
+    panel.append(note);
+    return;
+  }
+
   const url = document.createElement("input");
   url.type = "url";
   url.className = "grow";
@@ -1370,7 +1432,7 @@ function mountRelaySettings(): void {
   enabled.addEventListener("change", () => void save());
 
   const label = document.createElement("label");
-  label.append(enabled, document.createTextNode("Fetch through a relay"));
+  label.append(enabled, document.createTextNode(t("Fetch through a relay")));
 
   const row = document.createElement("div");
   row.className = "row wrap";
@@ -1380,13 +1442,13 @@ function mountRelaySettings(): void {
   const help = document.createElement("p");
   help.className = "muted hint";
   help.textContent = relayAdopted
-    ? `A relay is running at ${LOCAL_RELAY} on this machine, so this page is using it. ` +
-      "It is what lets sites that refuse a web page — YouTube's player endpoint answers " +
-      "403 to every origin but its own — work here. Untick to stop using it."
-    : "Optional, and only useful if a server refuses to be read by this page. The relay is " +
-      "in the repository (crates/dl-relay) and is meant to be run by you, on your own " +
-      "machine or server. It enforces the same refusals this page does, and there is no " +
-      "hosted one to buy.";
+    ? t(
+        "A relay is running at {address} on this machine, so this page is using it. It is what lets sites that refuse a web page work here. Untick to stop using it.",
+        { address: LOCAL_RELAY },
+      )
+    : t(
+        "Optional, and only useful if a server refuses to be read by this page. The relay is in the repository (crates/dl-relay) and is meant to be run by you, on your own machine or server. It enforces the same refusals this page does, and there is no hosted one to buy.",
+      );
 
   help.setAttribute("data-relay-row", "");
   panel.append(row, help);

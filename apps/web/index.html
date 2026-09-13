@@ -354,11 +354,17 @@
           <button id="go" class="primary">Download</button>
         </div>
 
+        <!-- Two versions of one hint, and the markup carries the one that is true on
+             opendownloader.app: there the page can reach neither a relay nor the torrent
+             bridge, and five of the six video sites refuse it (APP-79). main.ts swaps in
+             the fuller one only where a relay or the bridge actually answered. Each
+             sentence is a single text node, because the translator matches whole text
+             and the <b> tags this used to have cut it into untranslatable fragments. -->
         <p id="url-help" class="muted hint-inline">
-          A video page on <b>YouTube</b>, <b>Bilibili</b>, <b>Vimeo</b>,
-          <b>Dailymotion</b>, <b>Twitch</b> or <b>X</b> — or a direct file link,
-          an <code>.m3u8</code> playlist, a <b>magnet</b> link, or a
-          <b>Mega</b>, <b>Quark</b> or <b>eD2k</b> share.
+          <span data-hint="web">A Twitch clip, a Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.</span>
+          <span data-hint="web">YouTube, Bilibili, Vimeo, Dailymotion and X links need the extension.</span>
+          <span data-hint="relay" hidden>A video page on YouTube, Bilibili, Vimeo, Dailymotion, Twitch or X, a Mega or Quark share, a direct link to a file, or an .m3u8 playlist.</span>
+          <span data-hint="bridge" hidden>Magnet links and .torrent files work too.</span>
           <a href="#sites">See everything it knows</a>
         </p>
 
@@ -431,13 +437,7 @@
     <section id="sites">
       <h2>Sites it knows</h2>
       <p class="muted" style="margin: 0 0 var(--space-5)">
-        Any direct link to a media file or a playlist works anywhere. These have
-        extractors of their own, so pasting a page link is enough — and the ones
-        marked need the extension, because a web page is not allowed to read
-        another site's page. The last few are link kinds rather than websites;
-        those marked need a helper running on your own machine. Services whose
-        media is DRM-protected are refused, in code, and so is any encrypted
-        stream anywhere.
+        These sites have extractors of their own, so a page link is enough. Those marked here work on this page. Those marked extension need the browser extension, because the site will not answer a page on another domain. The last few are link kinds rather than websites, and those marked app need the OpenDownloader app running. Services whose media is DRM-protected are refused, in code, and so is any encrypted stream anywhere.
       </p>
       <div id="site-list" class="sites"></div>
     </section>
@@ -452,10 +452,7 @@
         >. Nothing here is metered, and there is no paid tier to upgrade to.
       </p>
       <p>
-        Some servers refuse to be read by a web page. If a download fails for
-        that reason, you can run the relay from the repository on your own
-        machine and point this page at it in Settings — or use the extension,
-        which never has that problem.
+        Some servers refuse to be read by a web page, and the extension is not subject to that. The relay in the repository gets around it too, but only for a copy of this page you run yourself: a page on the web cannot reach a program on your computer.
       </p>
     </section>
 

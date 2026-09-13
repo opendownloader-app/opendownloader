@@ -318,6 +318,12 @@ export interface SupportedSite {
   host: string;
   /** False when only a loaded page will do, so the web app cannot resolve it. */
   withoutATab: boolean;
+  /**
+   * True when the site answers a page on another domain, so the hosted web app can
+   * resolve it with no relay. Most `withoutATab` sites do not: they work from fetches,
+   * but only fetches a relay or the extension makes.
+   */
+  fromAnyOrigin: boolean;
 }
 
 /**

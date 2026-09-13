@@ -327,6 +327,86 @@ async function main() {
       JSON.stringify(ctr),
     );
 
+    // ---- what a visitor to the hosted page is told ------------------------
+    // Everything above runs from http://127.0.0.1, the one place a relay or the torrent
+    // bridge could answer — which is exactly why the catalogue once marked five video
+    // sites "here" that refused every visitor to opendownloader.app within two seconds
+    // (APP-79). So load the same build from an https origin that is not loopback, with
+    // the loopback helpers unreachable as they are for a real visitor, and hold the
+    // page to what it can actually do there.
+    const hosted = await browser.newPage();
+    hosted.on("pageerror", (e) => pageErrors.push(`hosted: ${e}`));
+    await hosted.route("http://127.0.0.1:*/**", (r) => r.abort());
+    await hosted.route("https://opendownloader.test/**", (r) => {
+      const path = decodeURIComponent(new URL(r.request().url()).pathname);
+      const file = join(DIST, path === "/" ? "/index.html" : path);
+      if (!file.startsWith(DIST) || !existsSync(file)) return r.fulfill({ status: 404, body: "not found" });
+      return r.fulfill({
+        status: 200,
+        headers: { "content-type": MIME[extname(file)] ?? "application/octet-stream" },
+        body: readFileSync(file),
+      });
+    });
+    const catalogue = async () => {
+      await hosted.waitForSelector("#site-list .site", { timeout: 20_000 });
+      // Both probes have to have settled before the labels are final.
+      await hosted.waitForTimeout(3000);
+      return hosted.$$eval("#site-list .site", (els) =>
+        els.map((el) => [el.firstChild.textContent, el.classList.contains("here"), el.lastChild.textContent]),
+      );
+    };
+    await hosted.goto("https://opendownloader.test/");
+    const chipsHosted = await catalogue();
+    const videoSites = ["YouTube", "Bilibili", "Vimeo", "Dailymotion", "Twitch clips", "X"];
+    const hereOnHosted = chipsHosted.filter(([n, here]) => here && videoSites.includes(n)).map(([n]) => n);
+    check(
+      "on the hosted page, only the video sites that answer any origin are marked here",
+      JSON.stringify(hereOnHosted) === JSON.stringify(["Twitch clips"]),
+      JSON.stringify(chipsHosted.filter(([n]) => videoSites.includes(n))),
+    );
+    const helpShown = await hosted.$$eval("#url-help [data-hint]", (els) =>
+      els.filter((el) => !el.hidden).map((el) => el.dataset.hint),
+    );
+    check(
+      "the hint under the link box is the hosted page's version",
+      JSON.stringify(helpShown) === JSON.stringify(["web", "web"]),
+      JSON.stringify(helpShown),
+    );
+    const helpText = await hosted.$$eval("#url-help [data-hint]:not([hidden])", (els) =>
+      els.map((el) => el.textContent).join(" "),
+    );
+    check(
+      "the hint does not claim YouTube or Bilibili work on the page",
+      /YouTube, Bilibili, Vimeo, Dailymotion and X links need the extension/.test(helpText) &&
+        !/A video page on YouTube/.test(helpText),
+      helpText,
+    );
+    await hosted.click("#manager details.panel summary").catch(() => {});
+    const relayRows = await hosted.$$eval("[data-relay-row]", (els) => els.map((el) => el.textContent));
+    check(
+      "Settings does not offer a relay the hosted page cannot reach",
+      relayRows.length === 1 && !relayRows[0].includes("Fetch through a relay") &&
+        relayRows[0].includes("extension"),
+      JSON.stringify(relayRows),
+    );
+
+    // The same, in 简体中文: the hint and the catalogue were the two places left in English.
+    await hosted.evaluate(() => localStorage.setItem("opendownloader.locale", "zh-Hans"));
+    await hosted.goto("https://opendownloader.test/");
+    const chipsZh = await catalogue();
+    const helpZh = await hosted.$$eval("#url-help [data-hint]:not([hidden])", (els) =>
+      els.map((el) => el.textContent).join(" "),
+    );
+    const headingZh = await hosted.textContent("#sites h2");
+    check(
+      "in 简体中文 the hint, the heading and the catalogue labels are translated",
+      helpZh.includes("需要使用扩展") && headingZh.trim() === "支持的网站" &&
+        chipsZh.some(([n, , w]) => n === "YouTube" && w === "扩展") &&
+        chipsZh.some(([n, , w]) => n === "Twitch clips" && w === "本页"),
+      JSON.stringify({ helpZh, headingZh, sample: chipsZh.slice(0, 3) }),
+    );
+    await hosted.close();
+
     check("no uncaught page errors", pageErrors.length === 0, pageErrors.join("; "));
   } finally {
     await browser.close();

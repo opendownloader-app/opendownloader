@@ -544,6 +544,20 @@ pub struct SiteInfo {
     /// fetch fallback, so only the extension can do it. Saying so up front is the
     /// difference between a considered limit and an error message after a failed paste.
     pub without_a_tab: bool,
+    /// Whether every request the extractor makes is answered to *any* origin, so a page
+    /// served from a different domain — the web app on opendownloader.app, with no relay
+    /// and no extension — can read the answers.
+    ///
+    /// Narrower than [`SiteInfo::without_a_tab`], and the two were once treated as one.
+    /// That field says the extractor can work from fetches; this one says a browser will
+    /// hand those fetches' answers to a foreign page. The web app marked every
+    /// `without_a_tab` site "works here", and five of the six refused a visitor in under
+    /// two seconds (APP-79). Measured 13 September 2026 with a plain cross-origin GET:
+    /// Twitch's GQL answers `Access-Control-Allow-Origin: *`; Vimeo's player config and
+    /// Dailymotion's metadata send no such header; X's syndication answers only
+    /// `platform.twitter.com`; YouTube and Bilibili refuse outright. Set it only from a
+    /// measurement like that one, never from what an API is documented to allow.
+    pub from_any_origin: bool,
 }
 
 /// Every site with a dedicated extractor in this build.
@@ -559,36 +573,43 @@ pub fn supported_sites() -> Vec<SiteInfo> {
             name: "YouTube",
             example: "https://www.youtube.com/watch?v=VIDEOID1234",
             without_a_tab: true,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "Bilibili",
             example: "https://www.bilibili.com/video/BV1xx411c7mD",
             without_a_tab: true,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "TikTok",
             example: "https://www.tiktok.com/@user/video/1234567890",
             without_a_tab: false,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "Douyin",
             example: "https://www.douyin.com/video/1234567890",
             without_a_tab: false,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "Instagram",
             example: "https://www.instagram.com/reel/ABCdef12345/",
             without_a_tab: false,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "Facebook",
             example: "https://www.facebook.com/watch/?v=1234567890",
             without_a_tab: false,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "WeChat",
             example: "https://mp.weixin.qq.com/s/AbCdEfGhIjKlMnOp",
             without_a_tab: false,
+            from_any_origin: false,
         },
     ]);
     sites.extend([
@@ -596,11 +617,13 @@ pub fn supported_sites() -> Vec<SiteInfo> {
             name: "Vimeo",
             example: "https://vimeo.com/123456789",
             without_a_tab: true,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "Dailymotion",
             example: "https://www.dailymotion.com/video/x8abcde",
             without_a_tab: true,
+            from_any_origin: false,
         },
         // Clips only, and named so: the extractor refuses VODs and channels outright, and a
         // catalogue entry reading just "Twitch" would promise the whole site.
@@ -608,11 +631,13 @@ pub fn supported_sites() -> Vec<SiteInfo> {
             name: "Twitch clips",
             example: "https://clips.twitch.tv/AbcDefGhi123",
             without_a_tab: true,
+            from_any_origin: true,
         },
         SiteInfo {
             name: "X",
             example: "https://x.com/user/status/1234567890",
             without_a_tab: true,
+            from_any_origin: false,
         },
     ]);
     sites
@@ -1021,6 +1046,32 @@ mod catalogue {
                 }
             );
         }
+    }
+
+    /// "Any origin can read it" is a claim about the site, and the only part of it the
+    /// code can check is the part that must hold first: a foreign page has no tab to
+    /// read, so an extractor it can use has to be one that works without one. The claim
+    /// itself comes from a measured cross-origin request — see the field's note.
+    #[test]
+    fn a_site_readable_from_any_origin_is_one_that_needs_no_tab() {
+        for site in supported_sites() {
+            if site.from_any_origin {
+                assert!(
+                    site.without_a_tab,
+                    "{} claims any origin can read it but needs a loaded tab",
+                    site.name
+                );
+            }
+        }
+        // And the catalogue of the web app's own shortfall, pinned: moving a site into
+        // this list is a promise to every visitor who pastes one, so it should take a
+        // failing test and a measurement, not a one-word edit.
+        let open: Vec<_> = supported_sites()
+            .into_iter()
+            .filter(|s| s.from_any_origin)
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(open, ["Twitch clips"]);
     }
 
     /// A store build compiles the platform extractors out, so the catalogue must shrink
