@@ -45,6 +45,23 @@ fn shape() -> SiteError {
     SiteError::Shape(SITE.to_string())
 }
 
+/// The watch page named no video at all: no state object, no manifest, not even the
+/// bvid from its own URL.
+///
+/// Not [`shape`], because in practice that is rarely what it is. A tab read before the
+/// player has finished loading, a risk-control interstitial, a page that was never a
+/// video — all of them land here, and every one is cured by loading the page again.
+/// "The site has probably changed" sent the first-visit failure in APP-80 to the wrong
+/// conclusion: it reads as the extension being broken, and nobody reloads a broken
+/// extension. The site changing is still named, as what it means if a reload does not help.
+fn unreadable_page() -> SiteError {
+    SiteError::Unavailable(format!(
+        "{SITE}'s page did not say which video it is. Reload the video page and try \
+         again — if it still fails after a reload, {SITE} has changed its page and \
+         OpenDownloader needs an update."
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Shared HTML-scraping helpers
 //
@@ -520,7 +537,7 @@ impl Extractor for Bilibili {
         // The `cid` this page would not give up. Checked before the HTML branches below,
         // because what comes back here is JSON and would fail every one of them.
         if let Some(bvid) = self.awaiting_pagelist.take() {
-            let cid = parse_pagelist(body).ok_or_else(shape)?;
+            let cid = parse_pagelist(body, url_part(&self.page_url)).ok_or_else(shape)?;
             self.awaiting_playurl = true;
             return Ok(Step::Need(Need::Fetch(vec![playurl_request(&VideoIds {
                 bvid,
@@ -554,7 +571,7 @@ impl Extractor for Bilibili {
         // never has the `cid` the player API cannot work without. One more hop asks for
         // it. Before this, the missing `cid` surfaced as "the site has probably changed",
         // which was true and unhelpful in equal measure.
-        let bvid = page_bvid(body, &self.page_url).ok_or_else(shape)?;
+        let bvid = page_bvid(body, &self.page_url).ok_or_else(unreadable_page)?;
         self.awaiting_pagelist = Some(bvid.clone());
         Ok(Step::Need(Need::Fetch(vec![pagelist_request(&bvid)])))
     }
@@ -615,11 +632,23 @@ pub fn page_bvid(html: &str, page_url: &str) -> Option<String> {
     // body has proved it is the page it claims to be — reaching for the URL whenever the
     // HTML is unreadable would turn "I could not read that page" into an API call and a
     // vaguer failure one hop later.
-    let root = initial_state(html)?;
-    root.get("bvid")
-        .and_then(id_string)
-        .or_else(|| root.get("videoData")?.get("bvid").and_then(id_string))
-        .or_else(|| bvid_in_url(page_url))
+    if let Some(root) = initial_state(html) {
+        return root
+            .get("bvid")
+            .and_then(id_string)
+            .or_else(|| root.get("videoData")?.get("bvid").and_then(id_string))
+            .or_else(|| bvid_in_url(page_url));
+    }
+    // The live tab, read by the extension. Bilibili deletes the inline
+    // `__INITIAL_STATE__` script once it has run, so the object is in the page's memory
+    // and nowhere in its markup — on every visit, measured 13 September 2026. A second
+    // visit gets away with it only because by then `__playinfo__` is assigned; a first
+    // visit, with no cookie yet, has neither, and used to end here as "the site has
+    // probably changed". What the markup still has is the bvid itself, in the canonical
+    // link and a dozen other places, and a page that names the video in its URL is the
+    // proof the rule above asks for.
+    let bvid = bvid_in_url(page_url)?;
+    html.contains(&bvid).then_some(bvid)
 }
 
 /// The `BV…` id out of a watch URL.
@@ -647,14 +676,30 @@ pub fn pagelist_request(bvid: &str) -> Request {
     }
 }
 
-/// The first part's `cid`, from a `pagelist` answer.
-pub fn parse_pagelist(body: &str) -> Option<String> {
+/// The `cid` of the part the URL addresses, from a `pagelist` answer.
+///
+/// `part` is the `?p=` of the watch URL, 1-based. The first part is right for every
+/// single-part video, and for a multi-part one it is a different episode's audio — which
+/// would be a quiet wrong download rather than an error, so the part is matched by its
+/// own `page` number and not by position.
+pub fn parse_pagelist(body: &str, part: u32) -> Option<String> {
     let root: Value = serde_json::from_str(body).ok()?;
-    root.get("data")?
-        .as_array()?
-        .first()?
-        .get("cid")
-        .and_then(id_string)
+    let parts = root.get("data")?.as_array()?;
+    let chosen = parts
+        .iter()
+        .find(|p| p.get("page").and_then(Value::as_u64) == Some(u64::from(part)))
+        .or_else(|| (part <= 1).then(|| parts.first()).flatten())?;
+    chosen.get("cid").and_then(id_string)
+}
+
+/// The `?p=` of a watch URL: which part of a multi-part video it addresses.
+fn url_part(url: &str) -> u32 {
+    url.split(['?', '&'])
+        .skip(1)
+        .find_map(|kv| kv.strip_prefix("p="))
+        .and_then(|n| n.split('#').next()?.parse().ok())
+        .filter(|&n| n >= 1)
+        .unwrap_or(1)
 }
 
 /// The player's own manifest request.
@@ -1840,13 +1885,81 @@ mod tests {
         ));
     }
 
+    /// The first thing to try is a reload, so that is what the message says first.
     #[test]
-    fn a_page_without_a_manifest_reports_shape_and_names_the_site() {
+    fn a_page_that_names_no_video_asks_for_a_reload_and_names_the_site() {
         let mut e = Bilibili::new();
         e.start("https://www.bilibili.com/video/BV1").unwrap();
         let err = e.feed(&["<html>nothing useful</html>"]).unwrap_err();
-        assert_eq!(err, SiteError::Shape("Bilibili".into()));
-        assert!(err.to_string().contains("Bilibili"));
+        let text = err.to_string();
+        assert!(matches!(err, SiteError::Unavailable(_)), "{err:?}");
+        assert!(text.contains("Bilibili"), "{text}");
+        assert!(text.contains("Reload"), "{text}");
+        assert!(!text.starts_with("Bilibili did not return"), "{text}");
+    }
+
+    /// APP-80, in the shape the extension actually reads it: the live DOM of a first
+    /// visit from a fresh profile, captured 13 September 2026 with Playwright. The
+    /// `__INITIAL_STATE__` script has been removed by the page after it ran — only
+    /// conditionals that *mention* it are left — and `__playinfo__` is absent entirely.
+    /// The bvid is still in the markup, in the canonical link.
+    #[test]
+    fn a_first_visit_with_neither_state_nor_manifest_in_the_markup_still_reaches_the_player_api() {
+        let page = r#"<html><head><title>iPhone Duo上手体验！折痕控制太离谱了_哔哩哔哩_bilibili</title>
+            <link rel="canonical" href="https://www.bilibili.com/video/BV1FDYb6qEQ5/"></head>
+            <body><script>window.webAbTest||(window.webAbTest={});try{window.__INITIAL_STATE__&&
+            (window.webAbTest.pageVersion=window.__INITIAL_STATE__.pageVersion)}catch(w){}</script>
+            </body></html>"#;
+        let mut e = Bilibili::new();
+        e.start("https://www.bilibili.com/video/BV1FDYb6qEQ5/?spm_id_from=333.1007")
+            .unwrap();
+
+        let Step::Need(Need::Fetch(requests)) = e.feed(&[page]).unwrap() else {
+            panic!("a first visit must ask for the cid, not fail");
+        };
+        assert!(
+            requests[0].url.contains("x/player/pagelist?bvid=BV1FDYb6qEQ5"),
+            "{}",
+            requests[0].url
+        );
+        let Step::Need(Need::Fetch(requests)) = e
+            .feed(&[r#"{"code":0,"data":[{"cid":41739422307,"page":1}]}"#])
+            .unwrap()
+        else {
+            panic!("the cid must lead to the player API");
+        };
+        assert!(
+            requests[0].url.contains("bvid=BV1FDYb6qEQ5") && requests[0].url.contains("cid=41739422307"),
+            "{}",
+            requests[0].url
+        );
+    }
+
+    /// The URL is only trusted once the page agrees with it. A tab whose markup never
+    /// mentions the id is not shown to be that video, and asking the API anyway would
+    /// trade a clear message for a vaguer one a hop later.
+    #[test]
+    fn the_id_in_the_url_is_not_used_when_the_page_never_mentions_it() {
+        let mut e = Bilibili::new();
+        e.start("https://www.bilibili.com/video/BV1FDYb6qEQ5/").unwrap();
+        assert!(matches!(
+            e.feed(&["<html><title>验证码</title></html>"]),
+            Err(SiteError::Unavailable(_))
+        ));
+    }
+
+    /// `?p=2` is the second episode. Taking the first entry from `pagelist` would download
+    /// the wrong one without any error at all.
+    #[test]
+    fn a_multi_part_url_gets_the_cid_of_the_part_it_names() {
+        let list = r#"{"code":0,"data":[{"cid":111,"page":1},{"cid":222,"page":2},{"cid":333,"page":3}]}"#;
+        assert_eq!(parse_pagelist(list, 1).as_deref(), Some("111"));
+        assert_eq!(parse_pagelist(list, 2).as_deref(), Some("222"));
+        assert_eq!(parse_pagelist(list, 4), None, "a part that is not there is not part 1");
+        assert_eq!(url_part("https://www.bilibili.com/video/BV1x/?p=2"), 2);
+        assert_eq!(url_part("https://www.bilibili.com/video/BV1x/?spm=a&p=3#t"), 3);
+        assert_eq!(url_part("https://www.bilibili.com/video/BV1x/?spm_id_from=p=9"), 1);
+        assert_eq!(url_part("https://www.bilibili.com/video/BV1x/"), 1);
     }
 
     #[test]

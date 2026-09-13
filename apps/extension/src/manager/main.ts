@@ -92,6 +92,10 @@ if (__OPENDOWNLOADER_E2E__) {
     // Site extraction, driven with a page supplied by the test rather than read from a
     // tab — automation has no second tab to read, and the parsing is the part under test.
     extract,
+    // What the popup hands `extract` alongside the page: the host's way of putting
+    // `Referer` and `User-Agent` on the wire. Without it a site API call from here is a
+    // CORS failure that says nothing about the extractor.
+    platform: extensionPlatform,
     isSupportedSite,
     // Vimeo's JSON adaptive path, which the popup drives from a toolbar click that
     // automation cannot produce reliably — the button needs a focused window.
