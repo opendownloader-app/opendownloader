@@ -1165,6 +1165,12 @@ async function renderSupportedSites(root: HTMLElement | null): Promise<void> {
       el.title = title;
       return el;
     };
+    // Built in full, then swapped in with one call. This runs more than once — on load,
+    // when the helper probes settle, on a language change — and those runs overlap. With
+    // the websites swapped in before an `await` and the link kinds appended after it, two
+    // overlapping runs each appended their own set, and the live page listed Mega, Quark
+    // and the rest three times over.
+    const sources = await supportedSources();
     root.replaceChildren(
       ...sites.map((site) => {
         const here = site.fromAnyOrigin || (site.withoutATab && relayActive());
@@ -1179,23 +1185,22 @@ async function renderSupportedSites(root: HTMLElement | null): Promise<void> {
               }),
         );
       }),
-    );
-    // The link kinds, after the websites. Same chips, different question: a website
-    // entry answers "can this page read it", a source entry answers "does this need a
-    // program running on your machine".
-    for (const source of await supportedSources()) {
-      // A helper is only worth naming where this page could reach one. On
-      // opendownloader.app it cannot, and the answer is the app with the page inside it.
-      const here = !source.needsLocalHelper || (source.name === "BitTorrent" ? !!torrentBridge : relayActive());
-      root.append(
-        chip(
+      // The link kinds, after the websites. Same chips, different question: a website
+      // entry answers "can this page read it", a source entry answers "does this need a
+      // program running on your machine". A helper is only worth naming where this page
+      // could reach one; on opendownloader.app it cannot, and the answer is the app with
+      // the page inside it.
+      ...sources.map((source) => {
+        const here =
+          !source.needsLocalHelper || (source.name === "BitTorrent" ? !!torrentBridge : relayActive());
+        return chip(
           source.name,
           here,
           here ? t("here") : t("app"),
           here ? source.accepts : t("Needs the OpenDownloader app running."),
-        ),
-      );
-    }
+        );
+      }),
+    );
   } catch {
     // The list is a courtesy; the link box works without it, and an error here would say
     // nothing a visitor could act on.

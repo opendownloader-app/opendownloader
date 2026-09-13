@@ -337,10 +337,15 @@ async function main() {
     const hosted = await browser.newPage();
     hosted.on("pageerror", (e) => pageErrors.push(`hosted: ${e}`));
     await hosted.route("http://127.0.0.1:*/**", (r) => r.abort());
-    await hosted.route("https://opendownloader.test/**", (r) => {
+    await hosted.route("https://opendownloader.test/**", async (r) => {
       const path = decodeURIComponent(new URL(r.request().url()).pathname);
       const file = join(DIST, path === "/" ? "/index.html" : path);
       if (!file.startsWith(DIST) || !existsSync(file)) return r.fulfill({ status: 404, body: "not found" });
+      // The core arrives late, as it does over a real network. The helper probes settle
+      // first, so the catalogue's second draw starts while its first is still waiting —
+      // the overlap that tripled the link kinds on the live site and never happened
+      // against a local server fast enough to hide it.
+      if (/dl_core_bg-.*\.wasm$/.test(path)) await new Promise((done) => setTimeout(done, 2500));
       return r.fulfill({
         status: 200,
         headers: { "content-type": MIME[extname(file)] ?? "application/octet-stream" },
@@ -350,13 +355,21 @@ async function main() {
     const catalogue = async () => {
       await hosted.waitForSelector("#site-list .site", { timeout: 20_000 });
       // Both probes have to have settled before the labels are final.
-      await hosted.waitForTimeout(3000);
+      await hosted.waitForTimeout(5000);
       return hosted.$$eval("#site-list .site", (els) =>
         els.map((el) => [el.firstChild.textContent, el.classList.contains("here"), el.lastChild.textContent]),
       );
     };
     await hosted.goto("https://opendownloader.test/");
     const chipsHosted = await catalogue();
+    // The catalogue is drawn more than once as the page learns what it can reach, and
+    // overlapping draws once appended the link kinds three times on the live site.
+    const names = chipsHosted.map(([n]) => n);
+    check(
+      "every catalogue entry appears exactly once",
+      new Set(names).size === names.length,
+      names.join(", "),
+    );
     const videoSites = ["YouTube", "Bilibili", "Vimeo", "Dailymotion", "Twitch clips", "X"];
     const hereOnHosted = chipsHosted.filter(([n, here]) => here && videoSites.includes(n)).map(([n]) => n);
     check(
