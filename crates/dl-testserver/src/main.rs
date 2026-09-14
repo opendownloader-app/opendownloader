@@ -87,7 +87,7 @@ fn handle(mut stream: TcpStream, counters: Counters) -> std::io::Result<()> {
     }
 
     let mut parts = line.split_whitespace();
-    let _method = parts.next().unwrap_or("GET");
+    let method = parts.next().unwrap_or("GET").to_string();
     let target = parts.next().unwrap_or("/").to_string();
 
     let mut headers = HashMap::new();
@@ -106,6 +106,16 @@ fn handle(mut stream: TcpStream, counters: Counters) -> std::io::Result<()> {
     }
 
     let (path, query) = split_query(&target);
+
+    // A CDN that serves plain cross-origin GETs and refuses every preflight: Twitch's
+    // CloudFront answers `OPTIONS` with a bare 403 while the same URL's GET carries
+    // `Access-Control-Allow-Origin: *`. A client that adds one non-safelisted header to a
+    // chunk request fails there before a byte arrives (APP-82). Only when asked, so the
+    // preflights every other test makes still succeed and still count as they did.
+    if method == "OPTIONS" && query.get("no_preflight").map(String::as_str) == Some("1") {
+        return send_without_cors(&mut stream, 403, "text/plain", b"preflight refused");
+    }
+
     let req = Request {
         target: target.clone(),
         path: path.to_string(),
@@ -347,6 +357,8 @@ fn route(out: &mut TcpStream, req: &Request, counters: &Counters) -> std::io::Re
 /// - `truncate_first=K` do that to the first K responses only, then serve normally —
 ///   which is the shape a reader has to survive: a connection cut part-way that
 ///   succeeds when the missing tail is asked for again
+/// - `no_preflight=1` refuse CORS preflights with a bare 403, as Twitch's CloudFront
+///   does, while GETs stay readable from any origin
 /// - `serve_to=N` answer `206` for a range starting below N and `403` for any range at
 ///   or beyond it, which is what Google's media addresses do — they serve to about
 ///   1.1 MB and refuse the rest, whatever the range size or the order asked in

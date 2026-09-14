@@ -214,3 +214,59 @@ test("a host that serves the start and refuses the rest leaves nothing to resume
   await expect(card.getByRole("button", { name: /^(Resume|Start)$/ })).toHaveCount(0);
   await expect(card.getByRole("button", { name: "Remove" })).toBeVisible();
 });
+
+test("a download is not resumed onto a file the server has since replaced", async ({
+  manager,
+  serverUrl,
+}) => {
+  // Half of a file was fetched in an earlier session, when the server's ETag was "v0".
+  // The server now says "v1": same URL, different file. Resuming would splice the new
+  // file's second half onto the old file's first. `If-Range` never caught this — the
+  // validator it sent was the one just probed, which always matches — and a web page
+  // talking to another origin no longer sends it at all (APP-82), so the saved
+  // validator is what has to be compared.
+  const size = 256 * 1024;
+  const half = size / 2;
+  const id = "replaced-between-sessions";
+  const stateJson = JSON.stringify({
+    resume: {
+      total: size,
+      validator: '"v0"',
+      accepts_ranges: true,
+      completed: [{ start: 0, end: half - 1 }],
+    },
+    remux: false,
+    remux_state: null,
+    next_segment: 0,
+    output_len: half,
+  });
+
+  await manager.evaluate(
+    async (seed) => {
+      await (globalThis as any).__test.putJob({
+        id: seed.id,
+        url: seed.url,
+        filename: "replaced.mp4",
+        kind: "progressive",
+        status: "paused",
+        stateJson: seed.stateJson,
+        totalBytes: seed.size,
+        receivedBytes: seed.half,
+        outputBytes: seed.half,
+        sha256: null,
+        error: null,
+        createdAt: Date.now(),
+        order: Date.now(),
+        expectedSha256: null,
+        verification: "unverified",
+      });
+      await (globalThis as any).__test.manager.sync();
+    },
+    { id, url: `${serverUrl}/fixture.mp4?size=${size}`, size, half, stateJson },
+  );
+  await manager.locator(".card").filter({ hasText: "replaced.mp4" }).getByRole("button", { name: "Resume" }).click();
+
+  const job = await waitForStatus(manager, id, ["done", "error"]);
+  expect(job.status).toBe("error");
+  expect(job.error).toContain("changed on the server");
+});

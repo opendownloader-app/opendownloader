@@ -113,6 +113,31 @@ export class NeedsForbiddenHeader extends Error {
  * that provably cannot succeed. Measured on Google's media addresses, which serve to
  * about 1.1 MB and refuse the rest.
  */
+/**
+ * Whether a request to `url` leaves a web page for another origin, and so has to pass
+ * the browser's CORS checks.
+ *
+ * What depends on it is which headers are safe to send. A single `Range` is
+ * CORS-safelisted; `If-Range` is not, so adding it turns a plain cross-origin GET into a
+ * preflighted one. A CDN that allows the GET and refuses the preflight — Twitch's
+ * CloudFront answers `OPTIONS` with a bare 403 — then fails the download before a byte
+ * arrives, as "Failed to fetch" (APP-82).
+ *
+ * An extension page is exempt: its host permissions lift CORS entirely. So is anything
+ * with no page at all. The URL checked is the one actually fetched, after the relay
+ * rewrite, because that is the origin the browser compares.
+ */
+export function crossOriginFromPage(url: string): boolean {
+  if (typeof location === "undefined" || !/^https?:$/.test(location.protocol)) {
+    return false;
+  }
+  try {
+    return new URL(engineConfig.rewriteUrl(url), location.href).origin !== location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export class HostRefusedRemainder extends Error {
   constructor(message: string) {
     super(message);

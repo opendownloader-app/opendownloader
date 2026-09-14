@@ -7,7 +7,7 @@
 // mechanics, it belongs in Rust where it can be tested.
 
 import { engineConfig } from "./config";
-import { fetchWithRetry } from "./fetch-retry";
+import { crossOriginFromPage, fetchWithRetry } from "./fetch-retry";
 import { runMerge } from "./merge";
 import { updateJob } from "./jobs";
 import { getSettings } from "./settings";
@@ -44,6 +44,9 @@ interface ProbeResult {
   total: number | null;
   acceptsRanges: boolean;
   validator: string | null;
+  /** Kept apart as well as combined, so a later answer is compared like with like. */
+  etag: string | null;
+  lastModified: string | null;
   mime: string;
 }
 
@@ -159,6 +162,8 @@ async function probe(url: string, signal?: AbortSignal): Promise<ProbeResult> {
     // ETag is preferred over Last-Modified: it is exact, where a
     // second-granularity timestamp can miss a change made within the same second.
     validator: res.headers.get("etag") ?? res.headers.get("last-modified"),
+    etag: res.headers.get("etag"),
+    lastModified: res.headers.get("last-modified"),
     mime:
       res.headers.get("content-type")?.split(";")[0]?.trim() ??
       "application/octet-stream",
@@ -229,6 +234,45 @@ async function decryptorFor(
  */
 const QUEUE_DEPTH = 8;
 
+/**
+ * Whether a ranged answer describes a different file from the one probed.
+ *
+ * The check `If-Range` would have made, made on the response instead, for the requests
+ * that cannot carry it. Only what the browser lets this page read is compared — a CDN
+ * that exposes no headers leaves nothing to compare, and then nothing is concluded.
+ */
+function servedADifferentFile(res: Response, info: ProbeResult): boolean {
+  const etag = res.headers.get("etag");
+  if (info.etag !== null && etag !== null) return etag !== info.etag;
+  const modified = res.headers.get("last-modified");
+  if (info.lastModified !== null && modified !== null) return modified !== info.lastModified;
+  const total = totalFromContentRange(res.headers.get("content-range"));
+  return info.total !== null && total !== null && total !== info.total;
+}
+
+/** The `12345` in `bytes 0-99/12345`, or null when absent or `*`. */
+function totalFromContentRange(header: string | null): number | null {
+  const size = header?.split("/")[1];
+  if (size === undefined || size === "*") return null;
+  const parsed = Number(size);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Whether the file a saved session was downloading is not the one there now. */
+function resumedOntoADifferentFile(stateJson: string, info: ProbeResult): boolean {
+  let saved: { validator?: string | null; total?: number | null } | undefined;
+  try {
+    saved = (JSON.parse(stateJson) as { resume?: typeof saved }).resume;
+  } catch {
+    return false;
+  }
+  if (!saved) return false;
+  if (saved.validator && info.validator && saved.validator !== info.validator) return true;
+  return (
+    typeof saved.total === "number" && info.total !== null && saved.total !== info.total
+  );
+}
+
 /** Run a progressive (single-resource) download to completion. */
 async function runProgressive(
   job: Job,
@@ -244,6 +288,14 @@ async function runProgressive(
   // Restoring a range-based plan against a server that has stopped honouring
   // ranges would quietly write the whole body at every planned offset.
   const resuming = Boolean(job.stateJson) && info.acceptsRanges;
+
+  // A resume is only safe onto the file the first bytes came from. This used to be left
+  // to `If-Range` — but the validator sent was the one just probed, which matches
+  // whatever the server holds now, so a file replaced between sessions resumed cleanly
+  // and the two were spliced together. The session saved the original; compare that.
+  if (resuming && resumedOntoADifferentFile(job.stateJson!, info)) {
+    throw new Error("the file changed on the server; restart this download");
+  }
   const session: Session = resuming
     ? core.DownloadSession.restore(job.stateJson)
     : new core.DownloadSession(
@@ -269,6 +321,8 @@ async function runProgressive(
   rate.record(Number(session.downloaded()));
   let lastFlush = 0;
 
+  const conditionalCostsAPreflight = crossOriginFromPage(job.url);
+
   /** One chunk, start to disk. Lifted out so a worker can call it in a loop. */
   const fetchChunk = async (r: {
     start: number;
@@ -281,9 +335,13 @@ async function runProgressive(
         ? `bytes=${r.start}-`
         : `bytes=${r.start}-${r.end}`;
       // If-Range makes the server answer 200-with-whole-body instead of 206
-      // when the resource changed, which is how a stale resume is detected
-      // rather than silently splicing two different files together.
-      if (info.validator) headers["If-Range"] = info.validator;
+      // when the resource changed, rather than silently splicing two different
+      // files together. Only where it is free, though: from a web page to another
+      // origin it forces a CORS preflight, and a CDN that refuses those fails every
+      // chunk (APP-82). There the answer itself is checked instead, below.
+      if (info.validator && !conditionalCostsAPreflight) {
+        headers["If-Range"] = info.validator;
+      }
     }
 
     const res = await fetchWithRetry(job.url, {
@@ -306,7 +364,14 @@ async function runProgressive(
       const why = await failureFor(res);
       throw new Error(`chunk ${r.start} failed: ${why.message}`);
     }
-    if (resuming && res.status === 200) {
+    // A range asked of a server that does ranges and answered with the whole body: with
+    // `If-Range` that is the server saying the file changed, and without it the body is
+    // still the whole file, which written at this chunk's offset would corrupt it. Either
+    // way nothing here can be kept.
+    if (
+      info.acceptsRanges &&
+      (res.status === 200 || servedADifferentFile(res, info))
+    ) {
       throw new Error("the file changed on the server; restart this download");
     }
 

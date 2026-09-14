@@ -208,6 +208,47 @@ async function main() {
     const download = await saved;
     check("the file is handed to the browser to save", download !== null, download?.suggestedFilename() ?? "");
 
+    // ---- a CDN that refuses preflights ------------------------------------
+    // This page and the media server are on different ports, so every request here is
+    // cross-origin and meets the browser's CORS checks for real — no request routing,
+    // which changes how Chromium handles preflights and once hid exactly this. Twitch's
+    // CloudFront allows a plain cross-origin GET and answers every preflight with 403;
+    // the engine's `If-Range` forced one on each chunk, so the only video site the web
+    // app advertised failed at 0 bytes (APP-82).
+    const pasteAndWait = async (url) => {
+      await page.fill("#url", url);
+      await page.click("#go");
+      const deadline = Date.now() + 60_000;
+      for (;;) {
+        const mine = (await page.evaluate(READ_JOBS)).find((j) => j.url === url);
+        if (mine && (mine.status === "done" || mine.status === "error")) return mine;
+        if (Date.now() > deadline) return mine ?? { status: "(no job was created)" };
+        await page.waitForTimeout(250);
+      }
+    };
+    // Two chunks, so the second request is a real mid-file range rather than the start.
+    const strictSize = 8 * 1024 * 1024 + 4096;
+    const strictExpected = (
+      await (await fetch(`${mediaUrl}/fixture.sha256?size=${strictSize}`)).text()
+    ).trim();
+    const strictSaved = page.waitForEvent("download", { timeout: 120_000 }).catch(() => null);
+    const strict = await pasteAndWait(`${mediaUrl}/fixture.mp4?size=${strictSize}&no_preflight=1`);
+    await strictSaved;
+    check(
+      "a host that refuses CORS preflights still downloads, and verifies",
+      strict.status === "done" && strict.sha256 === strictExpected,
+      strict.status === "done" ? (strict.sha256 === strictExpected ? "" : `digest ${strict.sha256}`) : strict.error ?? strict.status,
+    );
+
+    // Without `If-Range` on those requests, a file replaced mid-download has to be caught
+    // from the answers themselves. `flip=1` changes the ETag after the probe.
+    const flipped = await pasteAndWait(`${mediaUrl}/fixture.mp4?size=${size}&no_preflight=1&flip=1`);
+    check(
+      "a file that changes mid-download is refused rather than spliced",
+      flipped.status === "error" && /changed on the server/.test(flipped.error ?? ""),
+      `${flipped.status}: ${flipped.error ?? ""}`,
+    );
+
     // ---- the local remux tool --------------------------------------------
     //
     // Driven through the module the page already loaded rather than the file
