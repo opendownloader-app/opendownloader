@@ -357,6 +357,7 @@ fn route(out: &mut TcpStream, req: &Request, counters: &Counters) -> std::io::Re
 /// - `truncate_first=K` do that to the first K responses only, then serve normally —
 ///   which is the shape a reader has to survive: a connection cut part-way that
 ///   succeeds when the missing tail is asked for again
+/// - `cors_until=K` send CORS headers on the first K responses only
 /// - `no_preflight=1` refuse CORS preflights with a bare 403, as Twitch's CloudFront
 ///   does, while GETs stay readable from any origin
 /// - `serve_to=N` answer `206` for a range starting below N and `403` for any range at
@@ -371,6 +372,16 @@ fn serve_fixture(
     let size = usize_param(req, "size", 1 << 20);
     let ranges_enabled = req.query.get("ranges").map(String::as_str) != Some("0");
     let hits = counter(counters, &req.target).fetch_add(1, Ordering::SeqCst);
+
+    // Readable from any origin for the first K responses, then not at all. What Twitch's
+    // CloudFront does in effect: whether a file carries `Access-Control-Allow-Origin`
+    // depends on the cached copy, so a page can inspect a link and then be refused the
+    // bytes (APP-82). The page must say so, not report "Failed to fetch".
+    if let Some(limit) = req.query.get("cors_until").and_then(|v| v.parse::<usize>().ok()) {
+        if hits >= limit {
+            return send_without_cors(out, 206, content_type, b"not readable from a page");
+        }
+    }
 
     let fail_times = usize_param(req, "fail", 0);
     if hits < fail_times {

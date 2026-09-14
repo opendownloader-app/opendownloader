@@ -249,6 +249,17 @@ async function main() {
       `${flipped.status}: ${flipped.error ?? ""}`,
     );
 
+    // A host that lets the page look at a link and then withholds the bytes: the row has
+    // to say why and offer the extension, not end on "Failed to fetch".
+    const withheld = await pasteAndWait(`${mediaUrl}/fixture.mp4?size=${size}&cors_until=2`);
+    check(
+      "a file this page is refused mid-download says so and offers the extension",
+      withheld.status === "error" &&
+        withheld.needsExtension === true &&
+        /did not let this page read the file/.test(withheld.error ?? ""),
+      `${withheld.status} needsExtension=${withheld.needsExtension}: ${withheld.error ?? ""}`,
+    );
+
     // ---- the local remux tool --------------------------------------------
     //
     // Driven through the module the page already loaded rather than the file
@@ -413,9 +424,11 @@ async function main() {
     );
     const videoSites = ["YouTube", "Bilibili", "Vimeo", "Dailymotion", "Twitch clips", "X"];
     const hereOnHosted = chipsHosted.filter(([n, here]) => here && videoSites.includes(n)).map(([n]) => n);
+    // Twitch clips left "here" in APP-82: whether a clip's file answers a foreign page
+    // depends on how Twitch's CDN happened to cache it, so no video site can be promised.
     check(
-      "on the hosted page, only the video sites that answer any origin are marked here",
-      JSON.stringify(hereOnHosted) === JSON.stringify(["Twitch clips"]),
+      "on the hosted page, no video site is promised to work without the extension",
+      hereOnHosted.length === 0,
       JSON.stringify(chipsHosted.filter(([n]) => videoSites.includes(n))),
     );
     const helpShown = await hosted.$$eval("#url-help [data-hint]", (els) =>
@@ -430,9 +443,9 @@ async function main() {
       els.map((el) => el.textContent).join(" "),
     );
     check(
-      "the hint does not claim YouTube or Bilibili work on the page",
-      /YouTube, Bilibili, Vimeo, Dailymotion and X links need the extension/.test(helpText) &&
-        !/A video page on YouTube/.test(helpText),
+      "the hint does not claim any video site works on the page",
+      /YouTube, Bilibili, Vimeo, Dailymotion, Twitch and X links need the extension/.test(helpText) &&
+        !/A video page on YouTube|Twitch clip/.test(helpText),
       helpText,
     );
     await hosted.click("#manager details.panel summary").catch(() => {});
@@ -456,7 +469,8 @@ async function main() {
       "in 简体中文 the hint, the heading and the catalogue labels are translated",
       helpZh.includes("需要使用扩展") && headingZh.trim() === "支持的网站" &&
         chipsZh.some(([n, , w]) => n === "YouTube" && w === "扩展") &&
-        chipsZh.some(([n, , w]) => n === "Twitch clips" && w === "本页"),
+        chipsZh.some(([n, , w]) => n === "Twitch clips" && w === "扩展") &&
+        chipsZh.some(([n, , w]) => n === "Mega" && w === "本页"),
       JSON.stringify({ helpZh, headingZh, sample: chipsZh.slice(0, 3) }),
     );
     await hosted.close();

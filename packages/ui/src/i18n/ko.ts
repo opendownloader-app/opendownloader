@@ -1,6 +1,6 @@
 /** 한국어. Formal -습니다 for sentences, bare nouns for controls. */
 const ko: Record<string, string> = {
-  "A Twitch clip, a Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Twitch 클립, Mega 파일 링크, 동영상·오디오 파일 직접 링크 또는 .m3u8 재생 목록은 이 페이지에서 사용할 수 있습니다.",
+  "A Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Mega 파일 링크, 동영상·오디오 파일 직접 링크 또는 .m3u8 재생 목록은 이 페이지에서 사용할 수 있습니다.",
   "A relay is running at {address} on this machine, so this page is using it. It is what lets sites that refuse a web page work here. Untick to stop using it.": "이 컴퓨터의 {address}에서 릴레이가 실행 중이므로 이 페이지가 이를 사용하고 있습니다. 웹페이지를 거부하는 사이트를 여기서 사용할 수 있는 것은 이 때문입니다. 사용을 중지하려면 선택을 해제하세요.",
   "A video page on YouTube, Bilibili, Vimeo, Dailymotion, Twitch or X, a Mega or Quark share, a direct link to a file, or an .m3u8 playlist.": "YouTube, Bilibili, Vimeo, Dailymotion, Twitch 또는 X의 동영상 페이지, Mega 또는 Quark 공유, 파일 직접 링크, 또는 .m3u8 재생 목록.",
   "Account — OpenDownloader": "계정 — OpenDownloader",
@@ -84,7 +84,7 @@ const ko: Record<string, string> = {
   "Translation is unavailable here: this browser has no built-in Translator API. Converting between SRT and WebVTT still works.": "여기서는 번역을 사용할 수 없습니다. 이 브라우저에는 내장 Translator API가 없습니다. SRT와 WebVTT 간 변환은 계속 사용할 수 있습니다.",
   "Vimeo streams this as separate picture and sound; both are downloaded and joined.": "Vimeo는 영상과 소리를 따로 전송합니다. 둘 다 내려받아 합칩니다.",
   "Walking every folder in this share…": "이 공유의 모든 폴더를 살펴보는 중…",
-  "YouTube, Bilibili, Vimeo, Dailymotion and X links need the extension.": "YouTube, Bilibili, Vimeo, Dailymotion, X 링크에는 확장 프로그램이 필요합니다.",
+  "YouTube, Bilibili, Vimeo, Dailymotion, Twitch and X links need the extension.": "YouTube, Bilibili, Vimeo, Dailymotion, Twitch, X 링크에는 확장 프로그램이 필요합니다.",
   "app": "앱",
   "expected sha256 (optional)": "예상 sha256(선택)",
   "extension": "확장 프로그램",

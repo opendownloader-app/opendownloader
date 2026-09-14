@@ -1,6 +1,6 @@
 /** 日本語. Sentences end 。 and controls take the dictionary form. */
 const ja: Record<string, string> = {
-  "A Twitch clip, a Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Twitch のクリップ、Mega のファイルリンク、動画・音声ファイルへの直接リンク、または .m3u8 プレイリストは、このページで使えます。",
+  "A Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Mega のファイルリンク、動画・音声ファイルへの直接リンク、または .m3u8 プレイリストは、このページで使えます。",
   "A relay is running at {address} on this machine, so this page is using it. It is what lets sites that refuse a web page work here. Untick to stop using it.": "このマシンの {address} でリレーが動作しているため、このページはそれを使っています。ウェブページを拒否するサイトがここで使えるのはそのためです。使用をやめるにはチェックを外してください。",
   "A video page on YouTube, Bilibili, Vimeo, Dailymotion, Twitch or X, a Mega or Quark share, a direct link to a file, or an .m3u8 playlist.": "YouTube、Bilibili、Vimeo、Dailymotion、Twitch、X の動画ページ、Mega や Quark の共有、ファイルへの直接リンク、または .m3u8 プレイリスト。",
   "Account — OpenDownloader": "アカウント — OpenDownloader",
@@ -84,7 +84,7 @@ const ja: Record<string, string> = {
   "Translation is unavailable here: this browser has no built-in Translator API. Converting between SRT and WebVTT still works.": "ここでは翻訳を利用できません。このブラウザには Translator API が組み込まれていません。SRT と WebVTT の相互変換は引き続き使えます。",
   "Vimeo streams this as separate picture and sound; both are downloaded and joined.": "Vimeo は映像と音声を別々に配信します。両方をダウンロードして結合します。",
   "Walking every folder in this share…": "この共有のすべてのフォルダをたどっています…",
-  "YouTube, Bilibili, Vimeo, Dailymotion and X links need the extension.": "YouTube、Bilibili、Vimeo、Dailymotion、X のリンクには拡張機能が必要です。",
+  "YouTube, Bilibili, Vimeo, Dailymotion, Twitch and X links need the extension.": "YouTube、Bilibili、Vimeo、Dailymotion、Twitch、X のリンクには拡張機能が必要です。",
   "app": "アプリ",
   "expected sha256 (optional)": "想定される sha256（任意）",
   "extension": "拡張機能",

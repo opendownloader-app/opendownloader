@@ -557,6 +557,15 @@ pub struct SiteInfo {
     /// Dailymotion's metadata send no such header; X's syndication answers only
     /// `platform.twitter.com`; YouTube and Bilibili refuse outright. Set it only from a
     /// measurement like that one, never from what an API is documented to allow.
+    ///
+    /// And measure the media, not only the API. Twitch clips was set here from its GQL
+    /// answer and was wrong twice over (APP-82): the engine's `If-Range` made every chunk
+    /// a preflight its CloudFront refuses, and once that was fixed, whether a clip's file
+    /// carries `Access-Control-Allow-Origin` at all turned out to depend on CloudFront's
+    /// cache — it varies only on `accept-encoding`, so a copy first cached for a request
+    /// with no `Origin` is served without the header, for hours, to everyone. One clip
+    /// downloaded from the page and the next could not. A site belongs here only when its
+    /// files answer a foreign page every time.
     pub from_any_origin: bool,
 }
 
@@ -631,7 +640,7 @@ pub fn supported_sites() -> Vec<SiteInfo> {
             name: "Twitch clips",
             example: "https://clips.twitch.tv/AbcDefGhi123",
             without_a_tab: true,
-            from_any_origin: true,
+            from_any_origin: false,
         },
         SiteInfo {
             name: "X",
@@ -1065,13 +1074,14 @@ mod catalogue {
         }
         // And the catalogue of the web app's own shortfall, pinned: moving a site into
         // this list is a promise to every visitor who pastes one, so it should take a
-        // failing test and a measurement, not a one-word edit.
-        let open: Vec<_> = supported_sites()
+        // failing test and a measurement of its *files*, not a one-word edit. Empty since
+        // APP-82 — see the field's note for why Twitch clips left it.
+        let open: Vec<&str> = supported_sites()
             .into_iter()
             .filter(|s| s.from_any_origin)
             .map(|s| s.name)
             .collect();
-        assert_eq!(open, ["Twitch clips"]);
+        assert!(open.is_empty(), "{open:?}");
     }
 
     /// A store build compiles the platform extractors out, so the catalogue must shrink

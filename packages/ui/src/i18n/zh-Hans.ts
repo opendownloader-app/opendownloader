@@ -1,6 +1,6 @@
 /** 简体中文. Mainland conventions: 下载, 设置, 暂停. */
 const zhHans: Record<string, string> = {
-  "A Twitch clip, a Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Twitch 剪辑、Mega 文件链接、视频或音频文件的直链，或 .m3u8 播放列表，都可以在本页下载。",
+  "A Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Mega 文件链接、视频或音频文件的直链，或 .m3u8 播放列表，都可以在本页下载。",
   "A relay is running at {address} on this machine, so this page is using it. It is what lets sites that refuse a web page work here. Untick to stop using it.": "本机的 {address} 上正在运行中继程序，本页正在使用它。正是它让拒绝网页访问的网站可以在这里使用。取消勾选即可停用。",
   "A video page on YouTube, Bilibili, Vimeo, Dailymotion, Twitch or X, a Mega or Quark share, a direct link to a file, or an .m3u8 playlist.": "YouTube、B 站、Vimeo、Dailymotion、Twitch 或 X 的视频页，Mega 或夸克分享，文件直链，或 .m3u8 播放列表。",
   "Account — OpenDownloader": "账户 — OpenDownloader",
@@ -84,7 +84,7 @@ const zhHans: Record<string, string> = {
   "Translation is unavailable here: this browser has no built-in Translator API. Converting between SRT and WebVTT still works.": "此处无法翻译：该浏览器没有内置的 Translator API。SRT 与 WebVTT 之间的互转仍然可用。",
   "Vimeo streams this as separate picture and sound; both are downloaded and joined.": "Vimeo 将画面与声音分开推流；两者都会被下载并合并。",
   "Walking every folder in this share…": "正在遍历此分享中的每个文件夹…",
-  "YouTube, Bilibili, Vimeo, Dailymotion and X links need the extension.": "YouTube、B 站、Vimeo、Dailymotion 和 X 的链接需要使用扩展。",
+  "YouTube, Bilibili, Vimeo, Dailymotion, Twitch and X links need the extension.": "YouTube、B 站、Vimeo、Dailymotion、Twitch 和 X 的链接需要使用扩展。",
   "app": "应用",
   "expected sha256 (optional)": "预期的 sha256（可选）",
   "extension": "扩展",

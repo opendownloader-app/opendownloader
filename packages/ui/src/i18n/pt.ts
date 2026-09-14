@@ -1,6 +1,6 @@
 /** Português. Brazilian usage: baixar, arquivo, configurações. */
 const pt: Record<string, string> = {
-  "A Twitch clip, a Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Um clipe da Twitch, um link de arquivo do Mega, um link direto para um arquivo de vídeo ou áudio, ou uma playlist .m3u8 funciona nesta página.",
+  "A Mega file link, a direct link to a video or audio file, or an .m3u8 playlist works on this page.": "Um link de arquivo do Mega, um link direto para um arquivo de vídeo ou áudio, ou uma playlist .m3u8 funciona nesta página.",
   "A relay is running at {address} on this machine, so this page is using it. It is what lets sites that refuse a web page work here. Untick to stop using it.": "Há um relay em execução em {address} neste computador, então esta página está usando. É ele que permite usar aqui os sites que recusam uma página da web. Desmarque para parar de usar.",
   "A video page on YouTube, Bilibili, Vimeo, Dailymotion, Twitch or X, a Mega or Quark share, a direct link to a file, or an .m3u8 playlist.": "Uma página de vídeo do YouTube, Bilibili, Vimeo, Dailymotion, Twitch ou X, um compartilhamento do Mega ou do Quark, um link direto para um arquivo ou uma playlist .m3u8.",
   "Account — OpenDownloader": "Conta — OpenDownloader",
@@ -84,7 +84,7 @@ const pt: Record<string, string> = {
   "Translation is unavailable here: this browser has no built-in Translator API. Converting between SRT and WebVTT still works.": "A tradução não está disponível aqui: este navegador não tem a API Translator integrada. Converter entre SRT e WebVTT continua funcionando.",
   "Vimeo streams this as separate picture and sound; both are downloaded and joined.": "O Vimeo transmite imagem e som separadamente; os dois são baixados e unidos.",
   "Walking every folder in this share…": "Percorrendo todas as pastas deste compartilhamento…",
-  "YouTube, Bilibili, Vimeo, Dailymotion and X links need the extension.": "Links do YouTube, Bilibili, Vimeo, Dailymotion e X precisam da extensão.",
+  "YouTube, Bilibili, Vimeo, Dailymotion, Twitch and X links need the extension.": "Links do YouTube, Bilibili, Vimeo, Dailymotion, Twitch e X precisam da extensão.",
   "app": "aplicativo",
   "expected sha256 (optional)": "sha256 esperado (opcional)",
   "extension": "extensão",

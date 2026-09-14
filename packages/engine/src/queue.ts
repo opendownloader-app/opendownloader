@@ -13,6 +13,7 @@
 import { PausedError, runJob, type RunOptions } from "./engine";
 import { getJob, listJobs, updateJob } from "./jobs";
 import type { Platform } from "./platform";
+import { crossOriginFromPage, looksLikeCorsFailure } from "./fetch-retry";
 import { getSettings } from "./settings";
 import {
   canOpenSinkSilently,
@@ -234,9 +235,21 @@ export class Queue {
       const paused =
         e instanceof PausedError ||
         (e as { name?: string }).name === "AbortError";
+      // The browser refusing this page a cross-origin read arrives as a bare
+      // "Failed to fetch", which says nothing a visitor can act on. The extension is not
+      // subject to it, so the row offers that route. Not terminal: a CDN can start
+      // answering later — Twitch's does, as its cached copy of a file is refreshed.
+      const refusedThisPage =
+        !paused && looksLikeCorsFailure(e) && crossOriginFromPage(job.url);
       await updateJob(job.id, {
         status: paused ? "paused" : "error",
-        error: paused ? null : describe(e),
+        error: paused
+          ? null
+          : refusedThisPage
+            ? `${new URL(job.url).hostname} did not let this page read the file, or the ` +
+              "connection dropped before it answered. The browser extension is not subject " +
+              "to the first."
+            : describe(e),
         // A host that served the start and refused the rest will refuse it again at the
         // same offset, so this job has no resume to offer. Recorded here rather than
         // re-derived from the message in the UI.
@@ -248,7 +261,8 @@ export class Queue {
         // Retrying here cannot help either, but unlike the refusal above there *is*
         // something the user can do, so the row says what.
         needsExtension:
-          !paused && (e as { name?: string }).name === "NeedsForbiddenHeader",
+          refusedThisPage ||
+          (!paused && (e as { name?: string }).name === "NeedsForbiddenHeader"),
       });
     } finally {
       // Taken down even if the download threw: a stale header rule would apply to
