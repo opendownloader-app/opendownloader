@@ -31,6 +31,7 @@ import {
 import { Manager, candidateForUrl, mountTools } from "@opendownloader/ui";
 
 import { extensionPlatform, onJobsChanged } from "../platform/webext";
+import { captureYouTubeFormat } from "../content/yt-capture";
 
 // Test-only engine configuration, applied before anything can start a download.
 //
@@ -97,6 +98,9 @@ if (__OPENDOWNLOADER_E2E__) {
     // CORS failure that says nothing about the extractor.
     platform: extensionPlatform,
     isSupportedSite,
+    // Full-length YouTube capture by driving the page's own player (see yt-capture.ts).
+    // Returns the assembled bytes for one format so the suite can verify a full download.
+    captureYouTubeFormat,
     // Vimeo's JSON adaptive path, which the popup drives from a toolbar click that
     // automation cannot produce reliably — the button needs a focused window.
     resolveVimeoManifest,

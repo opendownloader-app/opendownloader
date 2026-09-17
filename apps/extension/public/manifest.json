@@ -44,5 +44,17 @@
       "https://opendownloader.app/*",
       "https://app.opendownloader.app/*"
     ]
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "js": [
+        "yt-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ]
 }

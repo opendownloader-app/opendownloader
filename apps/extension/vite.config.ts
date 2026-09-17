@@ -65,6 +65,7 @@ export default defineConfig({
         popup: resolve(__dirname, "src/popup/popup.html"),
         manager: resolve(__dirname, "src/manager/manager.html"),
         background: resolve(__dirname, "src/background/index.ts"),
+        "yt-hook": resolve(__dirname, "src/content/yt-hook.ts"),
       },
       output: {
         entryFileNames: "[name].js",
