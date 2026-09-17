@@ -40,6 +40,63 @@ pub struct Config {
     /// Connect plus response-headers timeout. Deliberately **not** a whole-body
     /// timeout: a 20 GiB file over a slow link is the normal case here, not an abuse.
     pub timeout_seconds: u64,
+    /// Server-side YouTube extraction (the `/youtube` route). Off by default: it shells
+    /// out to `yt-dlp`, which is a dependency and a maintenance commitment the operator
+    /// opts into, not one they inherit by running the plain proxy.
+    pub youtube: YoutubeConfig,
+}
+
+/// Settings for the `/youtube` route.
+///
+/// The plain proxy relays bytes a page already knows how to ask for. YouTube is different:
+/// the media URLs are short-lived, `n`-throttled, and gated behind a Proof-of-Origin token
+/// that only a real, trusted session mints — which is why the extension's direct fetch
+/// dies at ~60s. `yt-dlp` does that whole dance, so the relay drives it and streams the
+/// result. It is the one route that runs an external program.
+///
+/// **The trust caveat that decides whether this works at all:** YouTube flags datacenter
+/// IPs hardest. On a residential IP (a laptop, a home server) `yt-dlp` downloads full
+/// videos with none of this set. On a cloud VM it will hit the same ~60s wall the
+/// extension did unless `cookies` and an egress `proxy` (residential) are supplied. This
+/// is not a bug in the relay; it is the arms race, and these two fields are how you pay
+/// into it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct YoutubeConfig {
+    /// Off by default. With this false the `/youtube` route answers 404, exactly as if it
+    /// did not exist, so a relay that only proxies never spawns a subprocess.
+    pub enabled: bool,
+    /// The `yt-dlp` binary. A bare name is looked up on `PATH`; an absolute path pins it.
+    pub ytdlp_path: String,
+    /// A JavaScript runtime for `yt-dlp` (e.g. `deno`). Without one, current `yt-dlp`
+    /// cannot decipher the `n` parameter for some clients and warns that formats may be
+    /// missing — so a production install should set this. Empty leaves `yt-dlp` to its
+    /// own default detection.
+    pub js_runtime: String,
+    /// Path to a Netscape-format cookies file. On a datacenter IP this is often what makes
+    /// extraction work at all; on a residential IP it is usually unnecessary. Empty means
+    /// none.
+    pub cookies_file: String,
+    /// An egress proxy for `yt-dlp` (`http://…`, `socks5://…`). A residential proxy is the
+    /// other half of making this work from a cloud host. Empty means direct.
+    pub proxy: String,
+    /// The highest video height the route will serve. The free tier is 1080p; higher
+    /// resolutions are the credit-gated path (enforced by the caller, capped here too so
+    /// the relay is never the weak link). A request may ask for less but never more.
+    pub max_height: u32,
+}
+
+impl Default for YoutubeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            ytdlp_path: "yt-dlp".to_string(),
+            js_runtime: String::new(),
+            cookies_file: String::new(),
+            proxy: String::new(),
+            max_height: 1080,
+        }
+    }
 }
 
 impl Default for Config {
@@ -52,6 +109,7 @@ impl Default for Config {
             max_bytes: DEFAULT_MAX_BYTES,
             max_concurrent: 8,
             timeout_seconds: 30,
+            youtube: YoutubeConfig::default(),
         }
     }
 }
@@ -116,7 +174,41 @@ impl fmt::Display for Config {
         writeln!(f, "  allow_private_hosts = {}", self.allow_private_hosts)?;
         writeln!(f, "  max_bytes           = {}", self.max_bytes)?;
         writeln!(f, "  max_concurrent      = {}", self.max_concurrent)?;
-        write!(f, "  timeout_seconds     = {}", self.timeout_seconds)
+        writeln!(f, "  timeout_seconds     = {}", self.timeout_seconds)?;
+        if self.youtube.enabled {
+            writeln!(f, "  youtube.enabled     = true")?;
+            writeln!(f, "  youtube.ytdlp_path  = {}", self.youtube.ytdlp_path)?;
+            writeln!(
+                f,
+                "  youtube.js_runtime  = {}",
+                if self.youtube.js_runtime.is_empty() {
+                    "(yt-dlp default)"
+                } else {
+                    &self.youtube.js_runtime
+                }
+            )?;
+            writeln!(
+                f,
+                "  youtube.cookies     = {}",
+                if self.youtube.cookies_file.is_empty() {
+                    "(none)"
+                } else {
+                    &self.youtube.cookies_file
+                }
+            )?;
+            writeln!(
+                f,
+                "  youtube.proxy       = {}",
+                if self.youtube.proxy.is_empty() {
+                    "(direct)"
+                } else {
+                    &self.youtube.proxy
+                }
+            )?;
+            write!(f, "  youtube.max_height  = {}", self.youtube.max_height)
+        } else {
+            write!(f, "  youtube.enabled     = false")
+        }
     }
 }
 
@@ -156,5 +248,35 @@ mod tests {
         let cfg: Config = toml::from_str("allowed_origins = [\"https://app.example.com\"]")
             .expect("valid config");
         assert!(!cfg.allows_any_origin());
+    }
+
+    #[test]
+    fn youtube_is_off_and_capped_at_1080p_by_default() {
+        let cfg = Config::default();
+        assert!(!cfg.youtube.enabled);
+        assert_eq!(cfg.youtube.max_height, 1080);
+        assert_eq!(cfg.youtube.ytdlp_path, "yt-dlp");
+        assert!(cfg.youtube.cookies_file.is_empty());
+        assert!(cfg.youtube.proxy.is_empty());
+    }
+
+    #[test]
+    fn a_youtube_section_overrides_only_what_it_names() {
+        let cfg: Config = toml::from_str(
+            "[youtube]\nenabled = true\nmax_height = 2160\ncookies_file = \"/etc/dl-relay/cookies.txt\"",
+        )
+        .expect("valid config");
+        assert!(cfg.youtube.enabled);
+        assert_eq!(cfg.youtube.max_height, 2160);
+        assert_eq!(cfg.youtube.cookies_file, "/etc/dl-relay/cookies.txt");
+        // Untouched fields keep their defaults.
+        assert_eq!(cfg.youtube.ytdlp_path, "yt-dlp");
+        assert!(cfg.youtube.proxy.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_key_inside_youtube_is_an_error() {
+        let err = toml::from_str::<Config>("[youtube]\nenabled = true\ncookie = \"x\"").unwrap_err();
+        assert!(err.to_string().contains("cookie"), "{err}");
     }
 }

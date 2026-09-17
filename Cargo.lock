@@ -764,8 +764,10 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "tokio",
+ "tokio-util",
  "toml",
  "tower-http",
+ "url",
 ]
 
 [[package]]

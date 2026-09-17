@@ -31,3 +31,38 @@ max_concurrent = 8
 # Connect plus response-headers timeout. NOT a whole-body timeout: a large file
 # over a slow link is the normal case here.
 timeout_seconds = 30
+
+# --- Server-side YouTube extraction (the /youtube route) ---------------------
+#
+# Off by default. When on, the relay runs `yt-dlp` to extract and mux a YouTube
+# video, then streams the merged MP4 back. This is the one route that runs an
+# external program, so it is opt-in.
+#
+# WHERE YOU RUN THIS DECIDES WHETHER IT WORKS. YouTube distrusts datacenter IPs
+# hardest. On a residential IP (a laptop, a home server) yt-dlp pulls full videos
+# with nothing else set. On a cloud VM you will hit the same ~60-second wall the
+# extension did unless you supply cookies AND a residential egress proxy below.
+# That is the arms race, not a relay bug.
+[youtube]
+# enabled = false
+
+# The yt-dlp binary. A bare name is found on PATH; an absolute path pins it.
+# ytdlp_path = "yt-dlp"
+
+# A JavaScript runtime for yt-dlp (e.g. "deno"). Current yt-dlp needs one to
+# decipher the `n` parameter for some clients and warns that formats may be
+# missing without it — set it on a production install. Empty = yt-dlp's default.
+# js_runtime = ""
+
+# Netscape-format cookies file. On a datacenter IP this is often what makes
+# extraction work; on a residential IP it is usually unnecessary. Empty = none.
+# cookies_file = ""
+
+# Egress proxy for yt-dlp ("http://..." or "socks5://..."). A residential proxy
+# is the other half of making this work from a cloud host. Empty = direct.
+# proxy = ""
+
+# Highest video height the route will serve. The free tier is 1080p; higher
+# resolutions are the credit-gated path. Enforced server-side, so the relay is
+# never the weak link even if a client asks for more.
+# max_height = 1080

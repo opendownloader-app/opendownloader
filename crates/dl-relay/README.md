@@ -65,9 +65,11 @@ bot protection. Instagram/Facebook are heavily client-rendered and login-walled 
 extension-realistic for now.
 - **TikTok, Douyin** (adaptable, second wave) · **Instagram, Facebook, WeChat** (hard)
 
-**Tier 3 — high-maintenance frontier:** works, but fights an actively-maintained
-anti-download arms race and will break periodically.
-- **YouTube** — see below.
+**Tier 3 — high-maintenance frontier:** works via a dedicated route, but fights an
+actively-maintained anti-download arms race and will break periodically.
+- **YouTube** — now has its own `/youtube` route (server-side `yt-dlp`), verified working
+  from a residential IP. On a datacenter IP it needs cookies + a residential proxy. See
+  the YouTube section below — this is recurring maintenance, not a one-time build.
 
 **Recommended rollout:** Tier 1 first (fast, low-risk, real UX win with no maintenance
 burden), then Tier 2 as extractor work lands, and treat Tier 3 as ongoing R&D rather
@@ -75,34 +77,56 @@ than a launch blocker.
 
 ---
 
-## YouTube status (APP-77) — what works and what doesn't
+## YouTube (APP-77) — the `/youtube` route
 
-Investigated exhaustively against the live web player (2026-09-15/16). Full technical
-notes and the request/response templates are archived; summary for the team:
+**Decision (2026-09-17, with Darius): server-side extraction, built on `yt-dlp`.** Rather
+than hand-maintain a bespoke PO-token + SABR/UMP pipeline (which we proved caps at ~70s
+for any session YouTube does not fully trust — the "60-second wall"), the relay drives
+`yt-dlp`. It is a large, actively-maintained community project that absorbs the arms race
+for us, and it is Unlicense (no GPL entanglement). This is the `/youtube` route, and it is
+**off unless `[youtube].enabled` is set** — it is the one route that runs an external
+program.
 
-**Solved — the 403 that blocked every YouTube download:**
-1. PO token must be **content-bound to the video ID** (85 bytes; the visitor-bound
-   595-byte token is rejected by the media endpoint — the web client dropped it).
-2. The `n` URL parameter must be **deciphered** (nsig transform) or every media request
-   403s.
-3. The request must run from a **real browser session** (from Node it 403s).
+**Verified end-to-end (2026-09-17):** `GET /youtube?url=<watch>&height=720` against the
+635 s "Big Buck Bunny" case — the one that failed at ~58 s in the extension — returned a
+clean `av1 720p + opus` MP4, `ffprobe duration = 634.601 s`. The full video, past the
+wall, playable.
 
-With those, media flows: a correct request pulls 1080p video + audio, and audio
-downloads **past the 60-second wall (~70s)** at protection status 2.
+How it works:
+- **Strict URL gate first.** Only a real YouTube watch link (11-char video id) is
+  accepted; anything else is 400 *before* `yt-dlp` is spawned. `yt-dlp` extracts a
+  thousand sites and would fetch a `file://` or an intranet host if handed one, so this
+  gate is the route's security boundary (`youtube.rs::canonical_watch_url`, tested).
+- **Server-side height cap.** `max_height` (default 1080) is enforced by the relay, so it
+  is never the weak link in the free-tier gate even if the caller's own check is wrong.
+- **Merge to a scratch dir, then stream, then delete.** Muxing to a pipe leaves the video
+  track unplayable `bin_data` (measured), so `yt-dlp` writes the merged MP4 to a
+  per-request scratch directory; the relay streams that file (with a real
+  `Content-Length`) and a `Drop` guard removes the directory when the response ends *or*
+  the caller disconnects. Nothing is cached; nothing survives a request. The cost is
+  latency — the caller waits for download-and-mux before bytes flow.
 
-**Not solved — the deeper wall (the frontier):** after ~70s / ~1.1 MB the server stops
-sending media (audio caps at status 2; any video escalates immediately to **status 3,
-"attestation required"**). Getting the full file needs YouTube's ongoing BotGuard
-re-attestation / SABR attestation exchange — the same actively-defended layer that makes
-yt-dlp need constant updates and external PO-token providers. Tried and ruled out:
-appending the pot to iOS/Android GET URLs (403), echoing SABR context updates (server
-sends none), and seek-leapfrogging (0 bytes).
+### ⚠️ Where you run it decides whether it works
 
-**Implication:** a reliable full-length YouTube downloader — relay *or* extension — means
-taking on that arms race (recurring maintenance, not a one-time build). This is why
-YouTube is Tier 3 above, and why the plan ships Tier 1 first.
+YouTube flags **datacenter IPs** hardest. The verification above was from a **residential**
+IP with nothing else configured. **On a cloud VM the same ~60-second wall returns** unless
+you supply, in `[youtube]`:
+- `cookies_file` — a Netscape-format cookies export from a logged-in account, and
+- `proxy` — a **residential** egress proxy.
 
-The full pipeline (BotGuard PO-token minting via `bgutils-js`, SABR/UMP via `googlevideo`,
-`n`-decipher) is the same server-side or in the extension — and it's **easier
-server-side** in the relay (no CORS, no Trusted-Types), which is a point in favour of the
-hosted relay for the YouTube track when we take it on.
+This is not a bug in the relay; it is the arms race, and those two fields are how you pay
+into it. Also set `js_runtime = "deno"` in production: without a JS runtime, current
+`yt-dlp` cannot decipher `n` for some clients and warns that formats may be missing.
+
+**So the honest deployment note for the team:** the code is done and proven, but a naive
+datacenter deploy *will* reproduce the "still doesn't work at 60s" report. Budget for a
+residential proxy + a cookie pool + tracking `yt-dlp` releases (this is recurring
+maintenance, not a one-time build).
+
+### Still to wire
+
+The relay route is complete and tested. What remains for a user to actually get this:
+1. **Web-app wiring** — the web app should call `/youtube` for YouTube URLs (it already
+   knows how to reach the relay; this is a new call, not new transport).
+2. **The hosted relay + gating** — deploy with the residential proxy/cookies above, wire
+   the ≤1080p-free / >1080p-credits gate (`openapps-integration`). Infra, Darius's call.

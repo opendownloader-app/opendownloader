@@ -23,6 +23,7 @@
 
 pub mod config;
 mod guard;
+mod youtube;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -132,6 +133,10 @@ pub fn router(cfg: Config, client: reqwest::Client, cors: CorsLayer) -> Router {
         // JSON body, and a GET-only relay turns that into a silent failure the page
         // cannot explain. See `fetch_post`.
         .route("/fetch", get(fetch).post(fetch_post))
+        // Server-side YouTube extraction, off unless configured. It runs `yt-dlp`; see
+        // `youtube.rs` for why the proxy above cannot do this and where it does or does
+        // not work (residential vs datacenter IP).
+        .route("/youtube", get(youtube::youtube))
         .layer(cors)
         .with_state(state)
 }

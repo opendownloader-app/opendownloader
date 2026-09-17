@@ -24,3 +24,8 @@ reqwest = { workspace = true }
 futures-util = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }
+tokio-util = { workspace = true }
+# Strict YouTube-URL validation for the /youtube route — the security boundary before
+# yt-dlp is ever spawned. Already in the tree via reqwest; declared here because the code
+# uses it directly.
+url = "2"
