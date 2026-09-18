@@ -80,12 +80,17 @@ const COPIED_HEADERS: &[&str] = &[
 /// not what any browser sends, and the sites that screen for automation notice: bilibili
 /// answers that shape with a 412 and no page. Both are CORS-safelisted, so the caller can
 /// set them itself and simply needs them passed along.
-const FORWARDED_HEADERS: &[HeaderName] = &[
-    header::RANGE,
-    header::IF_RANGE,
-    header::CONTENT_TYPE,
-    header::ACCEPT,
-    header::ACCEPT_LANGUAGE,
+/// `Client-ID` is Twitch's public web client id: the extractor sets it on the GQL call,
+/// it is not a forbidden header so the page sends it directly, and without it here the
+/// relay drops it and Twitch answers 400 `"Client-ID" header is missing` (APP-95). It is a
+/// public constant, not a credential, so forwarding it carries nothing identifying.
+const FORWARDED_HEADERS: &[&str] = &[
+    "range",
+    "if-range",
+    "content-type",
+    "accept",
+    "accept-language",
+    "client-id",
 ];
 
 /// Headers the relay sets on the upstream request on the caller's behalf.
@@ -250,8 +255,8 @@ async fn relay_one(
             None => relay.client.get(&target.url),
         };
         for name in FORWARDED_HEADERS {
-            if let Some(value) = headers.get(name) {
-                request = request.header(name, value);
+            if let Some(value) = headers.get(*name) {
+                request = request.header(*name, value);
             }
         }
         // Headers a page is forbidden from setting, asked for by proxy.
@@ -440,17 +445,11 @@ mod tests {
         // on this list, and that is the property worth pinning.
         assert_eq!(
             FORWARDED_HEADERS,
-            &[
-                header::RANGE,
-                header::IF_RANGE,
-                header::CONTENT_TYPE,
-                header::ACCEPT,
-                header::ACCEPT_LANGUAGE,
-            ]
+            &["range", "if-range", "content-type", "accept", "accept-language", "client-id"]
         );
         for name in FORWARDED_HEADERS {
             assert!(
-                !["cookie", "authorization", "x-api-key"].contains(&name.as_str()),
+                !["cookie", "authorization", "x-api-key"].contains(name),
                 "{name} carries identity and must not be forwarded"
             );
         }
