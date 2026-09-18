@@ -96,6 +96,12 @@ const zhHant: Record<string, string> = {
   "{site} is supported directly — read this page for its own list of qualities.": "{site} 已被直接支援 —— 讀取此頁面可取得其自身的畫質清單。",
   "{site} will not answer this page. Open the video in a tab and use the extension there.": "{site} 不會回應本頁。請在分頁中開啟影片，並在那裡使用擴充功能。",
   "← Back to OpenDownloader": "← 返回 OpenDownloader",
+  "Paste a link here": "在此貼上連結",
+  "Copy the address and paste it in the box above — nothing else to install.": "複製網址，貼到上方的輸入框——不必安裝任何東西。",
+  "Use the extension": "使用擴充功能",
+  "These will not answer a web page directly. The free extension reads the page you are already on.": "這些網站不會直接回應網頁。免費的擴充功能會讀取你目前所在的頁面。",
+  "Use the app": "使用應用程式",
+  "A browser tab cannot join a BitTorrent swarm; the OpenDownloader app does it on your machine.": "瀏覽器分頁無法加入 BitTorrent 網路；OpenDownloader 應用程式會在你的電腦上完成。",
 };
 
 export default zhHant;

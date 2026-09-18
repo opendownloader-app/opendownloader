@@ -96,6 +96,12 @@ const pt: Record<string, string> = {
   "{site} is supported directly — read this page for its own list of qualities.": "{site} tem suporte direto — leia esta página para obter a lista de qualidades dele.",
   "{site} will not answer this page. Open the video in a tab and use the extension there.": "{site} não responde a esta página. Abra o vídeo em uma aba e use a extensão lá.",
   "← Back to OpenDownloader": "← Voltar ao OpenDownloader",
+  "Paste a link here": "Cole um link aqui",
+  "Copy the address and paste it in the box above — nothing else to install.": "Copie o endereço e cole na caixa acima — nada mais para instalar.",
+  "Use the extension": "Use a extensão",
+  "These will not answer a web page directly. The free extension reads the page you are already on.": "Esses sites não respondem diretamente a uma página web. A extensão gratuita lê a página em que você já está.",
+  "Use the app": "Use o aplicativo",
+  "A browser tab cannot join a BitTorrent swarm; the OpenDownloader app does it on your machine.": "Uma aba do navegador não pode entrar em um enxame BitTorrent; o aplicativo OpenDownloader faz isso na sua máquina.",
 };
 
 export default pt;

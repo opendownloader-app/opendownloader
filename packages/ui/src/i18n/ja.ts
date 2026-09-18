@@ -96,6 +96,12 @@ const ja: Record<string, string> = {
   "{site} is supported directly — read this page for its own list of qualities.": "{site} は直接サポートされています — このページを読み取ると、そのサイト独自の画質一覧が得られます。",
   "{site} will not answer this page. Open the video in a tab and use the extension there.": "{site} はこのページに応答しません。動画をタブで開き、そこで拡張機能を使ってください。",
   "← Back to OpenDownloader": "← OpenDownloader に戻る",
+  "Paste a link here": "ここにリンクを貼り付け",
+  "Copy the address and paste it in the box above — nothing else to install.": "アドレスをコピーして上のボックスに貼り付けてください。ほかに入れるものはありません。",
+  "Use the extension": "拡張機能を使う",
+  "These will not answer a web page directly. The free extension reads the page you are already on.": "これらのサイトはウェブページに直接応答しません。無料の拡張機能が、今開いているページを読み取ります。",
+  "Use the app": "アプリを使う",
+  "A browser tab cannot join a BitTorrent swarm; the OpenDownloader app does it on your machine.": "ブラウザのタブは BitTorrent の群れに参加できません。OpenDownloader アプリがあなたのマシンで行います。",
 };
 
 export default ja;

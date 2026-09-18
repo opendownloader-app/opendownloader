@@ -962,6 +962,33 @@ function youtubeWatchUrl(raw: string): string | null {
 }
 
 /**
+ * Sites the hosted (datacenter) relay cannot serve, so a web page must use the extension.
+ *
+ * These have working fetch-based extractors — from a real browser, or a relay on a home
+ * IP — but our shared server IP is blocked or bot-screened by them (APP-95): Bilibili 412s
+ * a browser User-Agent, Dailymotion's media CDN 403s the server IP, Vimeo needs a signed-in
+ * session. Serving them would take a residential proxy, which costs per-GB, and the product
+ * is free — so on the web they are the extension's job. The check is scoped to the
+ * same-origin hosted relay: a loopback relay a desktop user runs is on their own IP.
+ */
+const HOSTED_RELAY_BLOCKED = ["bilibili.com", "b23.tv", "vimeo.com", "dailymotion.com"];
+
+/** Whether the hosted relay is what is adopted, and it cannot serve `host`. */
+function hostedRelayBlocks(host: string): boolean {
+  if (!relay.enabled || !relay.url.startsWith(location.origin)) return false;
+  const h = host.toLowerCase();
+  return HOSTED_RELAY_BLOCKED.some((d) => h === d || h.endsWith(`.${d}`));
+}
+
+function hostedRelayCannotServe(url: string): boolean {
+  try {
+    return hostedRelayBlocks(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Whether the adopted relay actually has the `/youtube` route switched on.
  *
  * The route answers `400` ("url required") when it is enabled and `404` when it is not —
@@ -969,25 +996,6 @@ function youtubeWatchUrl(raw: string): string | null {
  * loopback relay someone started for cross-origin fetches need not have it) without
  * triggering an extraction.
  */
-/**
- * Sites the hosted (datacenter) relay cannot serve, so a web page must use the extension.
- *
- * These have working fetch-based extractors — from a real browser, or a relay on a home
- * IP — but our shared server IP is blocked or bot-screened by them (APP-95). The check is
- * scoped to the same-origin hosted relay: a loopback relay a desktop user started is on
- * their own residential IP and is not covered.
- */
-const HOSTED_RELAY_BLOCKED = ["bilibili.com", "b23.tv", "vimeo.com", "dailymotion.com"];
-
-function hostedRelayCannotServe(url: string): boolean {
-  if (!relay.enabled || !relay.url.startsWith(location.origin)) return false;
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return HOSTED_RELAY_BLOCKED.some((d) => host === d || host.endsWith(`.${d}`));
-  } catch {
-    return false;
-  }
-}
 
 async function relaySupportsYouTube(): Promise<boolean> {
   // Wait for the first adoption probe rather than deciding "no relay" mid-probe — a paste
@@ -1313,54 +1321,102 @@ function renderUrlHelp(): void {
 async function renderSupportedSites(root: HTMLElement | null): Promise<void> {
   if (!root) return;
   try {
+    // Both awaits happen before any DOM is built, so overlapping runs (on load, when the
+    // helper probes settle, on a language change) cannot each append half a list — the
+    // page once showed every link kind three times over from exactly that race.
     const sites = await supportedSites();
-    const chip = (name: string, here: boolean, where: string, title: string): HTMLElement => {
+    const sources = await supportedSources();
+
+    const chip = (name: string, works: boolean, title: string): HTMLElement => {
       const el = document.createElement("span");
-      el.className = here ? "site here" : "site";
+      el.className = works ? "site here" : "site";
       const label = document.createElement("span");
       label.textContent = name;
-      const whereEl = document.createElement("span");
-      whereEl.className = "where";
-      whereEl.textContent = where;
-      el.append(label, whereEl);
+      el.append(label);
       el.title = title;
       return el;
     };
-    // Built in full, then swapped in with one call. This runs more than once — on load,
-    // when the helper probes settle, on a language change — and those runs overlap. With
-    // the websites swapped in before an `await` and the link kinds appended after it, two
-    // overlapping runs each appended their own set, and the live page listed Mega, Quark
-    // and the rest three times over.
-    const sources = await supportedSources();
-    root.replaceChildren(
-      ...sites.map((site) => {
-        const here = site.fromAnyOrigin || (site.withoutATab && relayActive());
-        return chip(
+
+    // Three groups, answering the one question the section exists for: what a pasted link
+    // reaches from this page, what needs the extension, and what needs the app. A single
+    // flat list left a visitor counting which chips were highlighted to work that out.
+    const here: HTMLElement[] = [];
+    const ext: HTMLElement[] = [];
+    const app: HTMLElement[] = [];
+
+    for (const site of sites) {
+      // Works from a pasted link when it answers any origin, or a relay this page uses
+      // makes the call — but not a site the hosted relay is blocked from (APP-95), which
+      // belongs with the extension.
+      const works =
+        site.fromAnyOrigin ||
+        (site.withoutATab && relayActive() && !hostedRelayBlocks(site.host));
+      (works ? here : ext).push(
+        chip(
           site.name,
-          here,
-          here ? t("here") : t("extension"),
-          here
+          works,
+          works
             ? t("Paste a {site} link on this page.", { site: site.host })
-            : t("{site} will not answer this page. Open the video in a tab and use the extension there.", {
-                site: site.host,
-              }),
-        );
-      }),
-      // The link kinds, after the websites. Same chips, different question: a website
-      // entry answers "can this page read it", a source entry answers "does this need a
-      // program running on your machine". A helper is only worth naming where this page
-      // could reach one; on opendownloader.app it cannot, and the answer is the app with
-      // the page inside it.
-      ...sources.map((source) => {
-        const here =
-          !source.needsLocalHelper || (source.name === "BitTorrent" ? !!torrentBridge : relayActive());
-        return chip(
-          source.name,
-          here,
-          here ? t("here") : t("app"),
-          here ? source.accepts : t("Needs the OpenDownloader app running."),
-        );
-      }),
+            : t(
+                "{site} will not answer this page. Open the video in a tab and use the extension there.",
+                { site: site.host },
+              ),
+        ),
+      );
+    }
+    for (const source of sources) {
+      const works =
+        !source.needsLocalHelper ||
+        (source.name === "BitTorrent" ? !!torrentBridge : relayActive());
+      (works ? here : app).push(
+        chip(source.name, works, works ? source.accepts : t("Needs the OpenDownloader app running.")),
+      );
+    }
+
+    const group = (title: string, desc: string, chips: HTMLElement[]): HTMLElement => {
+      const g = document.createElement("div");
+      g.className = "site-group";
+      const heading = document.createElement("p");
+      heading.className = "site-group-title";
+      heading.textContent = title;
+      const description = document.createElement("p");
+      description.className = "site-group-desc";
+      description.textContent = desc;
+      const list = document.createElement("div");
+      list.className = "sites";
+      list.append(...chips);
+      g.append(heading, description, list);
+      return g;
+    };
+
+    root.replaceChildren(
+      ...(here.length
+        ? [
+            group(
+              t("Paste a link here"),
+              t("Copy the address and paste it in the box above — nothing else to install."),
+              here,
+            ),
+          ]
+        : []),
+      ...(ext.length
+        ? [
+            group(
+              t("Use the extension"),
+              t("These will not answer a web page directly. The free extension reads the page you are already on."),
+              ext,
+            ),
+          ]
+        : []),
+      ...(app.length
+        ? [
+            group(
+              t("Use the app"),
+              t("A browser tab cannot join a BitTorrent swarm; the OpenDownloader app does it on your machine."),
+              app,
+            ),
+          ]
+        : []),
     );
   } catch {
     // The list is a courtesy; the link box works without it, and an error here would say

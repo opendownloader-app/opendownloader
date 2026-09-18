@@ -310,6 +310,25 @@
       .site.here .where {
         color: var(--accent-text);
       }
+      /* The three groups: what a pasted link reaches, what needs the extension, what
+         needs the app. Each is a titled block so the answer is read, not counted. */
+      #site-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-6);
+      }
+      .site-group-title {
+        margin: 0 0 var(--space-1);
+        font-size: var(--text-sm);
+        font-weight: var(--weight-medium);
+        color: var(--text-strong);
+      }
+      .site-group-desc {
+        margin: 0 0 var(--space-3);
+        font-size: var(--text-xs);
+        color: var(--text-muted);
+        max-width: 60ch;
+      }
       #tools > * + * {
         margin-top: var(--space-2);
       }
@@ -437,7 +456,7 @@
     <section id="sites">
       <h2>Sites it knows</h2>
       <p class="muted" style="margin: 0 0 var(--space-5)">
-        These sites have extractors of their own, so a page link is enough. Those marked here work on this page. Those marked extension need the browser extension, because the site will not answer a page on another domain. The last few are link kinds rather than websites, and those marked app need the OpenDownloader app running. Services whose media is DRM-protected are refused, in code, and so is any encrypted stream anywhere.
+        Everything OpenDownloader knows, grouped by what reaches it: paste a link here, use the free extension, or use the app. Services whose media is DRM-protected are refused, in code, and so is any encrypted stream anywhere.
       </p>
       <div id="site-list" class="sites"></div>
     </section>

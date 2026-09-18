@@ -96,6 +96,12 @@ const ko: Record<string, string> = {
   "{site} is supported directly — read this page for its own list of qualities.": "{site}은(는) 직접 지원됩니다 — 이 페이지를 읽으면 해당 사이트의 화질 목록을 얻을 수 있습니다.",
   "{site} will not answer this page. Open the video in a tab and use the extension there.": "{site}은(는) 이 페이지에 응답하지 않습니다. 탭에서 동영상을 열고 그곳에서 확장 프로그램을 사용하세요.",
   "← Back to OpenDownloader": "← OpenDownloader로 돌아가기",
+  "Paste a link here": "여기에 링크 붙여넣기",
+  "Copy the address and paste it in the box above — nothing else to install.": "주소를 복사해 위 입력란에 붙여넣으세요. 설치할 것은 없습니다.",
+  "Use the extension": "확장 프로그램 사용",
+  "These will not answer a web page directly. The free extension reads the page you are already on.": "이 사이트들은 웹 페이지에 직접 응답하지 않습니다. 무료 확장 프로그램이 지금 보고 있는 페이지를 읽습니다.",
+  "Use the app": "앱 사용",
+  "A browser tab cannot join a BitTorrent swarm; the OpenDownloader app does it on your machine.": "브라우저 탭은 BitTorrent 스움에 참여할 수 없습니다. OpenDownloader 앱이 사용자의 컴퓨터에서 처리합니다.",
 };
 
 export default ko;
