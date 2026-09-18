@@ -964,14 +964,17 @@ function youtubeWatchUrl(raw: string): string | null {
 /**
  * Sites the hosted (datacenter) relay cannot serve, so a web page must use the extension.
  *
- * These have working fetch-based extractors — from a real browser, or a relay on a home
- * IP — but our shared server IP is blocked or bot-screened by them (APP-95): Bilibili 412s
- * a browser User-Agent, Dailymotion's media CDN 403s the server IP, Vimeo needs a signed-in
- * session. Serving them would take a residential proxy, which costs per-GB, and the product
- * is free — so on the web they are the extension's job. The check is scoped to the
- * same-origin hosted relay: a loopback relay a desktop user runs is on their own IP.
+ * Two sites, specifically — measured, not assumed (APP-95). Bilibili's watch page answers
+ * a datacenter IP with 412 for every video (a browser User-Agent triggers its anti-crawl,
+ * and no-UA returns a page with no player state), and Dailymotion's media CDN 403s the
+ * server IP even for videos whose metadata loads. Serving either would take a residential
+ * proxy, which costs per-GB, and the product is free — so on the web they are the
+ * extension's job. Vimeo is NOT here: its config API and HLS both answer our IP fine, so it
+ * works through the relay (only individual restricted videos 403, which the extension
+ * cannot help either). The check is scoped to the same-origin hosted relay: a loopback
+ * relay a desktop user runs is on their own IP and reaches all of these.
  */
-const HOSTED_RELAY_BLOCKED = ["bilibili.com", "b23.tv", "vimeo.com", "dailymotion.com"];
+const HOSTED_RELAY_BLOCKED = ["bilibili.com", "b23.tv", "dailymotion.com"];
 
 /** Whether the hosted relay is what is adopted, and it cannot serve `host`. */
 function hostedRelayBlocks(host: string): boolean {
