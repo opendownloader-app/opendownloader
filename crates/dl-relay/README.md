@@ -123,10 +123,38 @@ datacenter deploy *will* reproduce the "still doesn't work at 60s" report. Budge
 residential proxy + a cookie pool + tracking `yt-dlp` releases (this is recurring
 maintenance, not a one-time build).
 
-### Still to wire
+### Deployed and live (2026-09-17)
 
-The relay route is complete and tested. What remains for a user to actually get this:
-1. **Web-app wiring** — the web app should call `/youtube` for YouTube URLs (it already
-   knows how to reach the relay; this is a new call, not new transport).
-2. **The hosted relay + gating** — deploy with the residential proxy/cookies above, wire
-   the ≤1080p-free / >1080p-credits gate (`openapps-integration`). Infra, Darius's call.
+The hosted relay is running on the opendownloader.app box and the web app uses it.
+
+- **Service:** `dl-relay` built natively on the server, at `/usr/local/bin/dl-relay`, run by
+  `dl-relay.service` (systemd) as `www-data` with `PrivateTmp`, `ProtectSystem=strict`,
+  `NoNewPrivileges`, auto-restart, bound to `127.0.0.1:8088`. Config at
+  `/etc/dl-relay/dl-relay.toml` (`[youtube] enabled=true, js_runtime="deno", max_height=1080`).
+- **Dependencies on the box:** `yt-dlp` (standalone binary in `/usr/local/bin`), `ffmpeg`
+  (apt), and **`deno`** in `/usr/local/bin` with `DENO_DIR=/tmp/deno` in the unit. deno is
+  not optional in practice: without a JS runtime yt-dlp falls back to weaker player
+  clients and 403s intermittently — that was a live failure here until deno was installed.
+- **Exposure:** same-origin at `https://opendownloader.app/relay/` — an nginx `location`
+  on the existing vhost, `proxy_buffering off`, `proxy_read_timeout 1800s`. Same-origin, so
+  no CORS and it reuses the site's TLS cert.
+- **Abuse control:** nginx `limit_req` (20 req/min/IP, burst 10) + `limit_conn` (3/IP) on
+  `/relay/` (zones in `conf.d/relay-ratelimit.conf`), plus the relay's own
+  `max_concurrent=4`. This is the interim gate; the credit-gate for >1080p is still to come.
+- **Web app:** `apps/web/src/main.ts` auto-adopts the same-origin `/relay` (its
+  `adoptLocalRelay` already probes `${origin}/relay/healthz`) and routes YouTube watch URLs
+  to `/relay/youtube` as a direct browser download (`addFromYouTube`).
+
+**Verified end-to-end (public):** `https://opendownloader.app/relay/youtube?url=…&height=144…720`
+returns full-length MP4s (`ffprobe duration=634.601s`) reliably across repeated runs and
+several videos.
+
+### Still to do
+
+1. **Credit-gating for >1080p** — the relay caps at 1080 today (free tier); wire login +
+   1000-credit unlock for higher resolutions (`openapps-integration`).
+2. **Keep `yt-dlp` current** — the arms race. A cron `yt-dlp -U` (or re-fetching the
+   binary) plus watching for extraction-failure log lines. This IP is not flagged today;
+   if it becomes so, add `cookies_file` + a residential `proxy` (both already supported).
+3. **Redeploying the binary** after a relay code change: rebuild on the box from synced
+   source and `systemctl restart dl-relay` (there is no CI for this crate — `publish = false`).

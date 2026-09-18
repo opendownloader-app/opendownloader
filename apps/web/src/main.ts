@@ -885,6 +885,105 @@ async function addFromSite(url: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * The canonical watch URL for a YouTube link, or null if it is not one.
+ *
+ * Mirrors the relay's own gate (`dl-relay/src/youtube.rs`): a video id is exactly the 11
+ * URL-safe characters YouTube uses, and only `watch`, `youtu.be`, `shorts`, `embed`, `v`
+ * and `live` carry one. Anything else is not a YouTube video and falls through to the
+ * ordinary site path.
+ */
+function youtubeWatchUrl(raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  const host = u.hostname.toLowerCase().replace(/^www\./, "");
+  let id: string | null = null;
+  if (host === "youtu.be") {
+    id = u.pathname.slice(1);
+  } else if (
+    host === "youtube.com" ||
+    host === "m.youtube.com" ||
+    host === "music.youtube.com"
+  ) {
+    if (u.pathname === "/watch") {
+      id = u.searchParams.get("v");
+    } else {
+      const seg = u.pathname.split("/").filter(Boolean);
+      if (["shorts", "embed", "v", "live"].includes(seg[0] ?? "")) id = seg[1] ?? null;
+    }
+  }
+  return id && /^[A-Za-z0-9_-]{11}$/.test(id)
+    ? `https://www.youtube.com/watch?v=${id}`
+    : null;
+}
+
+/**
+ * Whether the adopted relay actually has the `/youtube` route switched on.
+ *
+ * The route answers `400` ("url required") when it is enabled and `404` when it is not —
+ * so a call with no `url` distinguishes a relay built for this from a plain proxy (a
+ * loopback relay someone started for cross-origin fetches need not have it) without
+ * triggering an extraction.
+ */
+async function relaySupportsYouTube(): Promise<boolean> {
+  if (!relay.enabled || !relay.url) return false;
+  try {
+    const probe = await fetch(`${relay.url.replace(/\/+$/, "")}/youtube`, {
+      signal: AbortSignal.timeout(2500),
+    });
+    return probe.status === 400;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Download a whole YouTube video through the relay's `/youtube` route.
+ *
+ * The relay runs yt-dlp server-side (a real, trusted session) and streams a finished MP4,
+ * which is the only way past the ~60-second wall a web page hits fetching YouTube's media
+ * directly. It merges video and audio before the first byte, so there is a wait; the
+ * browser then saves the file itself — no in-tab queue, because the bytes never pass
+ * through this page.
+ *
+ * Returns false when this is not a YouTube video, or no relay that can serve it is
+ * present, so the caller falls through to the extension-only path with its own message.
+ */
+async function addFromYouTube(url: string): Promise<boolean> {
+  const watch = youtubeWatchUrl(url);
+  if (!watch) return false;
+  if (!(await relaySupportsYouTube())) return false;
+
+  // Free tier: up to 1080p (the relay caps it there too). Higher resolutions are the
+  // credit-gated path and are not offered here yet.
+  const endpoint =
+    `${relay.url.replace(/\/+$/, "")}/youtube` +
+    `?url=${encodeURIComponent(watch)}&height=1080`;
+
+  // A plain navigation to the endpoint would replace this page while it waited; an anchor
+  // with `download` keeps the page and lets the browser save the response. The relay sets
+  // Content-Disposition, so the file is named `youtube-<id>.mp4`.
+  const a = document.createElement("a");
+  a.href = endpoint;
+  a.download = "";
+  a.rel = "noopener";
+  document.body.append(a);
+  a.click();
+  a.remove();
+
+  statusEl.className = "status";
+  statusEl.textContent =
+    "Preparing your YouTube download. The relay fetches the full video and merges it " +
+    "before sending, so it can take a minute before the file starts saving — the " +
+    "browser shows it in its own downloads once it does.";
+  return true;
+}
+
 function stem(title: string): string {
   const cleaned = title
     .replace(/[/\\:*?"<>|]/g, "_")
@@ -1298,6 +1397,14 @@ async function add(): Promise<void> {
     const unwrapped = await resolveDownloadLink(typed);
     const url = unwrapped ?? typed;
     if (unwrapped) statusEl.textContent = "Decoded that link — checking it…";
+
+    // YouTube before the generic site path: its own media dies at ~60s for a web page,
+    // so when a relay that can run yt-dlp server-side is present, the whole video comes
+    // straight from its /youtube route instead of the extension-only extractor below.
+    if (await addFromYouTube(url)) {
+      urlInput.value = "";
+      return;
+    }
 
     // A supported platform is asked what it has; anything else is treated as a direct
     // link to a file.
