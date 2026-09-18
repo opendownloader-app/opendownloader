@@ -201,6 +201,9 @@ const siteOptionsEl = document.getElementById("site-options") as HTMLDivElement;
  */
 let relay = { url: "", enabled: false };
 
+/** The first relay-adoption probe, so callers can wait for it to settle before deciding. */
+let relayReady: Promise<void> | null = null;
+
 configureEngine({
   rewriteUrl: (url) => {
     if (!relay.enabled || !relay.url) return url;
@@ -319,7 +322,7 @@ let torrentBridge: string | null = null;
  * The separate ports stay as the second guess, for the repository checkout where the
  * three run as three programs.
  */
-function candidateBases(sameOriginPath: string, loopback: string): string[] {
+function candidateBases(sameOriginPath: string, loopback: string): [string, string] {
   return [`${location.origin}${sameOriginPath}`, loopback];
 }
 
@@ -776,20 +779,7 @@ async function adoptLocalRelay(): Promise<void> {
   relay = { url: settings.relayUrl, enabled: settings.useRelay };
   if (settings.relayUrl) return;
 
-  let found: string | null = null;
-  for (const base of candidateBases("/relay", LOCAL_RELAY)) {
-    try {
-      const probe = await fetch(`${base}/healthz`, {
-        signal: AbortSignal.timeout(1200),
-      });
-      if (probe.ok && (await probe.text()).trim() === "ok") {
-        found = base;
-        break;
-      }
-    } catch {
-      // Nothing there. The common case, and not worth a word to the user.
-    }
-  }
+  const found = await findRelay();
   if (!found) return;
 
   relay = { url: found, enabled: true };
@@ -798,13 +788,51 @@ async function adoptLocalRelay(): Promise<void> {
   mountRelaySettings();
 }
 
+/** True when a relay at `base` answers its health check within `timeoutMs`. */
+async function relayAnswers(base: string, timeoutMs: number): Promise<boolean> {
+  try {
+    const probe = await fetch(`${base}/healthz`, {
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return probe.ok && (await probe.text()).trim() === "ok";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find a relay to adopt: the same-origin one first, then a loopback one.
+ *
+ * The same-origin `/relay` is part of the deployed product, not a maybe — so it is probed
+ * patiently and retried. A single 1.2s probe lost the race against a cold first load (every
+ * asset loading at once): a first-time visitor got no relay and the "install the extension"
+ * message, while a reload — served from cache — made the window and worked, which is why it
+ * was invisible to anyone whose browser had already adopted one. A relay that is genuinely
+ * absent answers 404 fast, so the longer timeout only ever waits on one that is really there
+ * but briefly slow. A loopback relay is optional and probed once, briefly.
+ */
+async function findRelay(): Promise<string | null> {
+  const [sameOrigin, loopback] = candidateBases("/relay", LOCAL_RELAY);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await relayAnswers(sameOrigin, 5000)) return sameOrigin;
+    if (attempt === 0 && (await relayAnswers(loopback, 1200))) return loopback;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  }
+  return null;
+}
+
 /** Set when the relay was found rather than typed, so Settings can say so. */
 let relayAdopted = false;
+
+// Kept so a paste that arrives before the first probe settles can wait for it rather than
+// deciding "no relay" and sending the user to the extension — the race behind a first-time
+// visitor being told to install the extension when the relay was there all along.
+relayReady = adoptLocalRelay();
 
 // What this page can actually do depends on which helpers answered, so the hint under
 // the link box and the site catalogue are drawn once now — in the state that is true on
 // opendownloader.app, where neither can — and again once both probes have finished.
-void Promise.allSettled([adoptLocalRelay(), adoptTorrentBridge()]).then(() => {
+void Promise.allSettled([relayReady, adoptTorrentBridge()]).then(() => {
   renderUrlHelp();
   void renderSupportedSites(document.getElementById("site-list"));
 });
@@ -931,6 +959,9 @@ function youtubeWatchUrl(raw: string): string | null {
  * triggering an extraction.
  */
 async function relaySupportsYouTube(): Promise<boolean> {
+  // Wait for the first adoption probe rather than deciding "no relay" mid-probe — a paste
+  // seconds after load used to lose to it and fall through to the extension message.
+  if (relayReady) await relayReady;
   if (!relay.enabled || !relay.url) return false;
   try {
     const probe = await fetch(`${relay.url.replace(/\/+$/, "")}/youtube`, {
