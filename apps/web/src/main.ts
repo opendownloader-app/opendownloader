@@ -877,6 +877,17 @@ void manager.start().then(() => mountRelaySettings());
 async function addFromSite(url: string): Promise<boolean> {
   if (!(await isSupportedSite(url))) return false;
 
+  // A few sites answer a fetch from a real browser but block or thin out a request from
+  // our datacenter relay — Bilibili 412s a browser User-Agent and serves no state,
+  // Dailymotion's media CDN 403s the server IP, Vimeo now needs a signed-in session. Left
+  // to try, they fail confusingly ("could not read the qualities"); routing them to the
+  // extension the way an unreachable site already is says the true thing (APP-95). Only
+  // the hosted, same-origin relay is datacenter-bound — a local relay a desktop user runs
+  // is on their own IP, so this does not apply there.
+  if (hostedRelayCannotServe(url)) {
+    throw new SiteNeedsExtension((await siteFor(url)) ?? "that site");
+  }
+
   const site = (await siteFor(url)) ?? "that site";
   // The broad question — can this be resolved here at all — not the narrow one about
   // fetched pages, which is false for every fetch-first extractor including YouTube.
@@ -958,6 +969,26 @@ function youtubeWatchUrl(raw: string): string | null {
  * loopback relay someone started for cross-origin fetches need not have it) without
  * triggering an extraction.
  */
+/**
+ * Sites the hosted (datacenter) relay cannot serve, so a web page must use the extension.
+ *
+ * These have working fetch-based extractors — from a real browser, or a relay on a home
+ * IP — but our shared server IP is blocked or bot-screened by them (APP-95). The check is
+ * scoped to the same-origin hosted relay: a loopback relay a desktop user started is on
+ * their own residential IP and is not covered.
+ */
+const HOSTED_RELAY_BLOCKED = ["bilibili.com", "b23.tv", "vimeo.com", "dailymotion.com"];
+
+function hostedRelayCannotServe(url: string): boolean {
+  if (!relay.enabled || !relay.url.startsWith(location.origin)) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return HOSTED_RELAY_BLOCKED.some((d) => host === d || host.endsWith(`.${d}`));
+  } catch {
+    return false;
+  }
+}
+
 async function relaySupportsYouTube(): Promise<boolean> {
   // Wait for the first adoption probe rather than deciding "no relay" mid-probe — a paste
   // seconds after load used to lose to it and fall through to the extension message.
