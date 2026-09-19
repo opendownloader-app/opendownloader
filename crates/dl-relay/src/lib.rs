@@ -291,6 +291,35 @@ async fn relay_one(
         url = guard::resolve_redirect(&target.url, &location)?;
     };
 
+    // Refuse a web document (HTML) unless it comes from a site opendownloader actually
+    // extracts. The relay exists to fetch media and the APIs/pages of those sites; serving
+    // arbitrary pages is what turned it into a general web proxy (APP-93). Media, manifests
+    // and JSON — including direct links from any host — are untouched, because only the
+    // document content-types are refused. The exemption is `dl_core::sites::is_supported`,
+    // so it tracks the extractor list automatically; `fetch_document_hosts` is an operator
+    // escape hatch on top. Checked here rather than in `guard::check` because the type is
+    // not known until the upstream answers; the body is never streamed when this fires, so
+    // the page the abuse wanted never leaves the upstream.
+    if relay.cfg.refuse_documents {
+        let content_type = upstream
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok());
+        if guard::is_document_type(content_type) {
+            let final_url = upstream.url().as_str().to_string();
+            let host = upstream
+                .url()
+                .host_str()
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if !dl_core::sites::is_supported(&final_url)
+                && !guard::host_on_list(&relay.cfg.fetch_document_hosts, &host)
+            {
+                return Err(Refusal::DocumentRefused);
+            }
+        }
+    }
+
     let status = upstream.status();
     let max_bytes = relay.cfg.max_bytes;
     if let Some(len) = upstream.content_length() {

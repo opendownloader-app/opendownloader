@@ -21,6 +21,18 @@ allow_hosts = []
 # endpoint. Only turn it on for a relay bound to loopback on a machine you own.
 allow_private_hosts = false
 
+# Stop a public relay being used as a general web proxy. When true, an HTML/XHTML
+# response is refused UNLESS it comes from a site opendownloader actually extracts (that
+# list is built in, so it stays in sync automatically). Media, manifests, JSON and direct
+# links from anywhere still pass — that is the relay's job. Off by default so a private
+# relay is unchanged; turn it on for a public one.
+# refuse_documents = false
+
+# Extra hosts (and subdomains) whose HTML to allow on top of the built-in extractor list,
+# for when you extend the relay yourself. Usually left empty. Ignored when
+# refuse_documents is off.
+# fetch_document_hosts = []
+
 # Ceiling on one relayed response, in bytes. 20 GiB. Enforced from the upstream
 # content-length and again while streaming, since a chunked response has no length.
 max_bytes = 21474836480

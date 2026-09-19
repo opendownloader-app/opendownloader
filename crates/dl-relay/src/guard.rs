@@ -27,6 +27,10 @@ pub enum Refusal {
     PrivateHost,
     /// The host is not on the operator's allow-list.
     HostNotAllowed,
+    /// The upstream answered with a web document (HTML) from a host that is not a known
+    /// extraction site, so the relay refuses to serve it. This is what stops the relay
+    /// being used as a general web proxy while still letting it fetch media from anywhere.
+    DocumentRefused,
     /// The response is, or becomes, larger than `max_bytes`.
     TooLarge(u64),
     /// `max_concurrent` upstream requests are already in flight.
@@ -39,9 +43,10 @@ impl Refusal {
     pub fn status(&self) -> StatusCode {
         match self {
             Refusal::BadUrl(_) | Refusal::Unresolvable => StatusCode::BAD_REQUEST,
-            Refusal::Restricted | Refusal::PrivateHost | Refusal::HostNotAllowed => {
-                StatusCode::FORBIDDEN
-            }
+            Refusal::Restricted
+            | Refusal::PrivateHost
+            | Refusal::HostNotAllowed
+            | Refusal::DocumentRefused => StatusCode::FORBIDDEN,
             Refusal::TooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             Refusal::Busy => StatusCode::SERVICE_UNAVAILABLE,
             Refusal::Upstream(_) => StatusCode::BAD_GATEWAY,
@@ -57,6 +62,7 @@ impl Refusal {
             Refusal::Restricted => "restricted",
             Refusal::PrivateHost => "private-host",
             Refusal::HostNotAllowed => "host-not-allowed",
+            Refusal::DocumentRefused => "document-refused",
             Refusal::TooLarge(_) => "too-large",
             Refusal::Busy => "busy",
             Refusal::Upstream(_) => "upstream",
@@ -85,6 +91,12 @@ impl Refusal {
             Refusal::HostNotAllowed => {
                 "refused: that host is not in this relay's allow_hosts list.\n".to_string()
             }
+            Refusal::DocumentRefused => concat!(
+                "refused: the relay does not serve web pages from this host. It relays\n",
+                "media and the APIs of the sites it extracts, not arbitrary documents —\n",
+                "so it cannot be used as a general web proxy.\n"
+            )
+            .to_string(),
             Refusal::TooLarge(max) => {
                 format!("too large: this relay is capped at {max} bytes per response.\n")
             }
@@ -352,9 +364,70 @@ fn host_matches(host: &str, allowed: &str) -> bool {
             && host.as_bytes()[host.len() - allowed.len() - 1] == b'.')
 }
 
+/// Whether `host` (or a subdomain of it) is on `list`. Case-insensitive on the list side;
+/// the host is expected to already be lowercase.
+pub fn host_on_list(list: &[String], host: &str) -> bool {
+    list.iter()
+        .any(|entry| host_matches(host, &entry.to_ascii_lowercase()))
+}
+
+/// Whether a `Content-Type` names a web document — HTML or XHTML. This, not a domain list,
+/// is what separates "fetch a media file or a site's API" from "browse an arbitrary
+/// website through our IP": the abuse an open proxy enables is reading pages, and pages are
+/// these types. A `charset` or other parameter after the type is ignored.
+pub fn is_document_type(content_type: Option<&str>) -> bool {
+    match content_type {
+        Some(value) => {
+            let essence = value
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase();
+            essence == "text/html" || essence == "application/xhtml+xml"
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_html_and_xhtml_count_as_documents() {
+        // The abuse an open proxy enables is reading web pages; these are the page types.
+        assert!(is_document_type(Some("text/html")));
+        assert!(is_document_type(Some("text/html; charset=utf-8")));
+        assert!(is_document_type(Some("application/xhtml+xml")));
+        assert!(is_document_type(Some("TEXT/HTML")));
+        // Media, manifests, JSON and direct-download bytes must all pass.
+        assert!(!is_document_type(Some("video/mp4")));
+        assert!(!is_document_type(Some("audio/mpeg")));
+        assert!(!is_document_type(Some("application/vnd.apple.mpegurl")));
+        assert!(!is_document_type(Some("application/dash+xml")));
+        assert!(!is_document_type(Some("application/json")));
+        assert!(!is_document_type(Some("application/octet-stream")));
+        assert!(!is_document_type(None));
+    }
+
+    #[test]
+    fn a_document_host_list_matches_subdomains() {
+        let list = vec!["bilibili.com".to_string(), "vimeo.com".to_string()];
+        assert!(host_on_list(&list, "www.bilibili.com"));
+        assert!(host_on_list(&list, "bilibili.com"));
+        assert!(host_on_list(&list, "player.vimeo.com"));
+        assert!(!host_on_list(&list, "example.com"));
+        // The classic suffix-spoof must not match.
+        assert!(!host_on_list(&list, "notbilibili.com"));
+        assert!(!host_on_list(&list, "bilibili.com.evil.test"));
+    }
+
+    #[test]
+    fn document_refused_is_a_forbidden() {
+        assert_eq!(Refusal::DocumentRefused.status(), StatusCode::FORBIDDEN);
+        assert_eq!(Refusal::DocumentRefused.tag(), "document-refused");
+    }
 
     fn cfg() -> Config {
         Config::default()

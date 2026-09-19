@@ -27,6 +27,16 @@ pub struct Config {
     /// "anything the compliance policy already permits", which is not the same as
     /// "anything".
     pub allow_hosts: Vec<String>,
+    /// Refuse to relay a web document (an HTML/XHTML response) unless its host is in
+    /// [`Config::fetch_document_hosts`]. This is what stops a public relay being used as a
+    /// general web proxy: media, manifests and JSON still pass from anywhere (that is the
+    /// relay's job and includes direct links), but "fetch me any web page" is refused.
+    /// Off by default so a self-hosted relay behaves exactly as before.
+    pub refuse_documents: bool,
+    /// Hosts (and their subdomains) whose HTML the relay will still serve when
+    /// [`Config::refuse_documents`] is on — the sites whose extraction genuinely reads a
+    /// page rather than an API. Ignored when `refuse_documents` is off.
+    pub fetch_document_hosts: Vec<String>,
     /// Opt-in to relaying into private address space. Off by default because a relay
     /// with this on is a hole punched through the operator's network perimeter: every
     /// client of the relay can reach every host the relay can reach.
@@ -105,6 +115,8 @@ impl Default for Config {
             bind: "127.0.0.1:8088".to_string(),
             allowed_origins: vec!["*".to_string()],
             allow_hosts: Vec::new(),
+            refuse_documents: false,
+            fetch_document_hosts: Vec::new(),
             allow_private_hosts: false,
             max_bytes: DEFAULT_MAX_BYTES,
             max_concurrent: 8,
@@ -171,6 +183,18 @@ impl fmt::Display for Config {
                 format!("{:?}", self.allow_hosts)
             }
         )?;
+        writeln!(f, "  refuse_documents    = {}", self.refuse_documents)?;
+        if self.refuse_documents {
+            writeln!(
+                f,
+                "  fetch_document_hosts= {}",
+                if self.fetch_document_hosts.is_empty() {
+                    "[] (no host may return HTML)".to_string()
+                } else {
+                    format!("{:?}", self.fetch_document_hosts)
+                }
+            )?;
+        }
         writeln!(f, "  allow_private_hosts = {}", self.allow_private_hosts)?;
         writeln!(f, "  max_bytes           = {}", self.max_bytes)?;
         writeln!(f, "  max_concurrent      = {}", self.max_concurrent)?;
@@ -248,6 +272,20 @@ mod tests {
         let cfg: Config = toml::from_str("allowed_origins = [\"https://app.example.com\"]")
             .expect("valid config");
         assert!(!cfg.allows_any_origin());
+    }
+
+    #[test]
+    fn document_refusal_is_off_by_default_and_configurable() {
+        let cfg = Config::default();
+        assert!(!cfg.refuse_documents);
+        assert!(cfg.fetch_document_hosts.is_empty());
+
+        let cfg: Config = toml::from_str(
+            "refuse_documents = true\nfetch_document_hosts = [\"bilibili.com\", \"vimeo.com\"]",
+        )
+        .expect("valid config");
+        assert!(cfg.refuse_documents);
+        assert_eq!(cfg.fetch_document_hosts, vec!["bilibili.com", "vimeo.com"]);
     }
 
     #[test]
